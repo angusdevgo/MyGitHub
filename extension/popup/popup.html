@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>MyGitHub 跨设备 2FA</title>
+  <style>
+    body {
+      width: 340px;
+      margin: 0;
+      padding: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: #0d1117;
+      color: #c9d1d9;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .header h2 {
+      margin: 0;
+      font-size: 16px;
+      color: #58a6ff;
+    }
+    .badge {
+      font-size: 11px;
+      padding: 2px 6px;
+      border-radius: 10px;
+      background: #238636;
+      color: #ffffff;
+      margin-left: auto;
+    }
+    .badge.disconnected {
+      background: #da3633;
+    }
+    .section {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+    .section-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: #8b949e;
+      margin-bottom: 8px;
+    }
+    .qr-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 8px;
+      background: #ffffff;
+      border-radius: 8px;
+      margin: 8px 0;
+    }
+    canvas {
+      max-width: 180px;
+      max-height: 180px;
+    }
+    .field {
+      margin-bottom: 10px;
+    }
+    label {
+      display: block;
+      font-size: 11px;
+      color: #8b949e;
+      margin-bottom: 4px;
+    }
+    input {
+      width: 100%;
+      box-sizing: border-box;
+      background: #0d1117;
+      border: 1px solid #30363d;
+      color: #c9d1d9;
+      padding: 6px 8px;
+      border-radius: 6px;
+      font-size: 12px;
+    }
+    input:focus {
+      outline: none;
+      border-color: #58a6ff;
+    }
+    button {
+      width: 100%;
+      background: #238636;
+      color: #fff;
+      border: none;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover {
+      background: #2ea043;
+    }
+    button.secondary {
+      background: #21262d;
+      border: 1px solid #30363d;
+      color: #c9d1d9;
+      margin-top: 6px;
+    }
+    button.secondary:hover {
+      background: #30363d;
+    }
+    .hint {
+      font-size: 11px;
+      color: #8b949e;
+      text-align: center;
+      margin-top: 6px;
+    }
+  </style>
+  <script src="../libs/qrcode.min.js"></script>
+</head>
+<body>
+  <div class="header">
+    <h2>MyGitHub 2FA</h2>
+    <span id="status-badge" class="badge disconnected">未配对</span>
+  </div>
+
+  <div class="section" id="pair-section">
+    <div class="section-title">手机扫码配对 (仅需一次)</div>
+    <div class="qr-container">
+      <div id="qrcode"></div>
+    </div>
+    <div class="hint">打开手机 MyGitHub → 设置 → 安全中心 → 跨设备配对 扫描上方二维码</div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">中继与账号配置</div>
+    <div class="field">
+      <label>GitHub 用户名</label>
+      <input type="text" id="account-input" placeholder="angusdevgo" />
+    </div>
+    <div class="field">
+      <label>Cloudflare Relay 地址 (可选)</label>
+      <input type="text" id="relay-input" placeholder="https://mygithub-relay.workers.dev" />
+    </div>
+    <button id="save-btn">保存并更新配对码</button>
+    <button id="reset-btn" class="secondary">重新生成设备密钥</button>
+  </div>
+
+  <script src="popup.js" type="module"></script>
+</body>
+</html>
