@@ -96,7 +96,6 @@ fun ProfileScreen(
     var user by remember { mutableStateOf<GitHubUser?>(null) }
     var showStars by remember { mutableStateOf(false) }
     var showSecurity by remember { mutableStateOf(false) }
-    var showSettings by remember { mutableStateOf(false) }
     var showRecentViews by remember { mutableStateOf(false) }
     var showStatPage by remember { mutableStateOf<String?>(null) } // "repos" | "followers" | "following"
     var loading by remember { mutableStateOf(true) }
@@ -147,17 +146,6 @@ fun ProfileScreen(
     when {
         showStars -> { StarsScreen(onRepoClick = onRepoClick, onBack = { showStars = false }); return }
         showSecurity -> { com.mygithub.lab.ui.screens.security.SecurityScreen(onBack = { showSecurity = false }); return }
-        showSettings -> {
-            com.mygithub.lab.ui.screens.settings.SettingsScreen(
-                onBack = { showSettings = false },
-                onOpenThemeDialog = { showThemeDialog = true },
-                onOpenSecurity = { showSecurity = true },
-                onOpenAccount = { showAccountDialog = true },
-                themeLabel = themeLabel,
-                loginTypeLabel = loginTypeLabel
-            )
-            return
-        }
         showRecentViews -> { RecentViewsScreen(onRepoClick = onRepoClick, onBack = { showRecentViews = false }); return }
         showStatPage != null -> {
             StatListScreen(
@@ -353,7 +341,7 @@ fun ProfileScreen(
                     iconColor = MaterialTheme.colorScheme.secondary,
                     title = "应用设置",
                     subtitle = "外观主题 · 安全中心 · 账号 · 网络加速",
-                    onClick = { showSettings = true }
+                    onClick = { onNavigateToSettings() }
                 )
             }
             item(key = "menu_about") {
@@ -771,7 +759,7 @@ private fun TotpQuickCard(
 }
 
 @Composable
-private fun ThemeSelectionDialog(
+fun ThemeSelectionDialog(
     currentMode: String,
     onModeSelected: (String) -> Unit,
     onDismiss: () -> Unit

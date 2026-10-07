@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -19,6 +21,7 @@ import androidx.compose.material.icons.filled.Leaderboard
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Home
@@ -64,6 +67,7 @@ import com.mygithub.lab.ui.screens.repos.RepoDetailScreen
 import com.mygithub.lab.ui.screens.repos.ReposScreen
 import com.mygithub.lab.ui.screens.issues.IssueDetailScreen
 import com.mygithub.lab.ui.screens.about.AboutScreen
+import com.mygithub.lab.ui.screens.settings.SettingsScreen
 import com.mygithub.lab.ui.theme.MyGitHubTheme
 
 data class TabItem(
@@ -79,6 +83,8 @@ object Routes {
     const val ISSUE_DETAIL = "issue_detail"
     const val SEARCH = "search"
     const val ABOUT = "about"
+    const val SETTINGS = "settings"
+    const val SECURITY = "security"
 }
 
 @androidx.compose.material3.ExperimentalMaterial3Api
@@ -193,6 +199,95 @@ fun MyGitHubApp() {
                     onShowUpdate = { appUpdateInfo = it }
                 )
             }
+            composable(Routes.SECURITY) {
+                BackHandler(enabled = true) { navController.popBackStack() }
+                com.mygithub.lab.ui.screens.security.SecurityScreen(
+                    onBack = { navController.popBackStack() }
+                )
+            }
+            composable(Routes.SETTINGS) {
+                BackHandler(enabled = true) { navController.popBackStack() }
+                var showSettingsThemeDialog by remember { mutableStateOf(false) }
+                var showSettingsAccountDialog by remember { mutableStateOf(false) }
+                val loginTypeLabel = remember { TokenStore.getLoginType(context)?.let { if (it == "pat") "PAT 令牌" else "Device Flow" } ?: "未知" }
+                val themeLabel = when (themeMode) { "dark" -> "深色"; "light" -> "浅色"; else -> "跟随系统" }
+
+                SettingsScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpenThemeDialog = { showSettingsThemeDialog = true },
+                    onOpenSecurity = { navController.navigate(Routes.SECURITY) },
+                    onOpenAccount = { showSettingsAccountDialog = true },
+                    themeLabel = themeLabel,
+                    loginTypeLabel = loginTypeLabel
+                )
+
+                if (showSettingsThemeDialog) {
+                    com.mygithub.lab.ui.screens.profile.ThemeSelectionDialog(
+                        currentMode = themeMode,
+                        onModeSelected = { mode ->
+                            prefs.edit().putString("theme_mode", mode).apply()
+                            showSettingsThemeDialog = false
+                        },
+                        onDismiss = { showSettingsThemeDialog = false }
+                    )
+                }
+
+                if (showSettingsAccountDialog) {
+                    val rawToken = remember { TokenStore.getToken(context) ?: "" }
+                    val maskedToken = remember(rawToken) {
+                        if (rawToken.length > 8) "${rawToken.take(4)}...${rawToken.takeLast(4)}" else rawToken
+                    }
+                    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+                    androidx.compose.material3.AlertDialog(
+                        onDismissRequest = { showSettingsAccountDialog = false },
+                        title = { Text("账号信息") },
+                        text = {
+                            androidx.compose.foundation.layout.Column(
+                                verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp)
+                            ) {
+                                androidx.compose.foundation.layout.Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween
+                                ) {
+                                    Text("登录方式", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(loginTypeLabel, style = MaterialTheme.typography.bodyMedium, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)
+                                }
+                                androidx.compose.foundation.layout.Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween
+                                ) {
+                                    Text("凭证掩码", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    androidx.compose.foundation.layout.Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.clickable {
+                                            clipboard.setText(androidx.compose.ui.text.AnnotatedString(rawToken))
+                                            android.widget.Toast.makeText(context, "已复制完整凭证", android.widget.Toast.LENGTH_SHORT).show()
+                                        }.padding(4.dp)
+                                    ) {
+                                        Text(maskedToken, style = MaterialTheme.typography.bodyMedium, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)
+                                        androidx.compose.foundation.layout.Spacer(Modifier.width(4.dp))
+                                        Icon(androidx.compose.material.icons.Icons.Filled.ContentCopy, contentDescription = "复制", modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                                    }
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            androidx.compose.material3.TextButton(onClick = { showSettingsAccountDialog = false }) { Text("关闭") }
+                        },
+                        dismissButton = {
+                            androidx.compose.material3.TextButton(
+                                onClick = {
+                                    showSettingsAccountDialog = false
+                                    TokenStore.clear(context)
+                                    loggedIn = false
+                                },
+                                colors = androidx.compose.material3.ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                            ) { Text("退出账号") }
+                        }
+                    )
+                }
+            }
         }
 
         // 全局更新弹窗（任何页面上均可展示）
@@ -243,7 +338,8 @@ private fun MainScaffold(
                 onRepoClick = onRepoClick,
                 onLogout = onLogout,
                 onShowUpdate = onShowUpdate,
-                onNavigateToAbout = { navController.navigate(Routes.ABOUT) }
+                onNavigateToAbout = { navController.navigate(Routes.ABOUT) },
+                onNavigateToSettings = { navController.navigate(Routes.SETTINGS) }
             )
         }
 

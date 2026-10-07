@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -34,6 +35,8 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Router
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
@@ -198,8 +201,11 @@ fun SettingsScreen(
                     }
                 )
 
-                // 镜像源配置展开
+                // 镜像源配置展开（支持折叠/展开，紧凑省空间）
                 AnimatedVisibility(visible = proxySettings.mode == ProxyMode.MIRROR) {
+                    var isMirrorExpanded by remember { mutableStateOf(false) }
+                    val currentMirrorLabel = ProxyManager.DEFAULT_MIRRORS.find { it.first == proxySettings.mirrorPrefix }?.second ?: "默认镜像源"
+
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -208,49 +214,82 @@ fun SettingsScreen(
                             .padding(12.dp)
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(
-                                text = "选择公共镜像节点",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            ProxyManager.DEFAULT_MIRRORS.forEach { (url, label) ->
-                                val isMirrorSelected = proxySettings.mirrorPrefix == url
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(
-                                            if (isMirrorSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                                            else Color.Transparent
-                                        )
-                                        .clickable {
-                                            selectedMirror = url
-                                            val updated = proxySettings.copy(mirrorPrefix = url)
-                                            updateSettings(updated)
-                                        }
-                                        .padding(horizontal = 10.dp, vertical = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                            // 紧凑折叠摘要栏（点击展开/收起）
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { isMirrorExpanded = !isMirrorExpanded }
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "镜像节点: $currentMirrorLabel",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Text(
+                                        text = proxySettings.mirrorPrefix,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Icon(
+                                    imageVector = if (isMirrorExpanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                                    contentDescription = if (isMirrorExpanded) "收起" else "展开切换",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+
+                            // 展开的可选节点列表
+                            AnimatedVisibility(visible = isMirrorExpanded) {
+                                Column(
+                                    modifier = Modifier.padding(top = 4.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = label,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = if (isMirrorSelected) FontWeight.Bold else FontWeight.Normal
-                                        )
-                                        Text(
-                                            text = url,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                    if (isMirrorSelected) {
-                                        Icon(
-                                            imageVector = Icons.Filled.Check,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(18.dp)
-                                        )
+                                    ProxyManager.DEFAULT_MIRRORS.forEach { (url, label) ->
+                                        val isMirrorSelected = proxySettings.mirrorPrefix == url
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(
+                                                    if (isMirrorSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                                    else Color.Transparent
+                                                )
+                                                .clickable {
+                                                    selectedMirror = url
+                                                    val updated = proxySettings.copy(mirrorPrefix = url)
+                                                    updateSettings(updated)
+                                                    isMirrorExpanded = false
+                                                }
+                                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = label,
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    fontWeight = if (isMirrorSelected) FontWeight.Bold else FontWeight.Normal
+                                                )
+                                                Text(
+                                                    text = url,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                            if (isMirrorSelected) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.Check,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -427,6 +466,7 @@ fun SettingsScreen(
             }
 
             Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.navigationBarsPadding())
         }
     }
 }
