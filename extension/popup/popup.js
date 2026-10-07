@@ -59,7 +59,14 @@ document.addEventListener("DOMContentLoaded", async () => {
     const qrText = JSON.stringify(pairPayload);
     qrDiv.innerHTML = "";
     if (window.QRCode) {
-      new QRCode(qrDiv, qrText);
+      new QRCode(qrDiv, {
+        text: qrText,
+        width: 200,
+        height: 200,
+        colorDark: "#000000",
+        colorLight: "#ffffff",
+        correctLevel: QRCode.CorrectLevel.M
+      });
     }
   }
 

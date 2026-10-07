@@ -236,25 +236,32 @@ fun MyGitHubApp() {
                     onScanned = { payload ->
                         // 判断是否为设备配对二维码还是普通 TOTP
                         try {
-                            val jsonElem = kotlinx.serialization.json.Json.parseToJsonElement(payload.secret)
-                            val obj = jsonElem.let { kotlinx.serialization.json.JsonObject(it as? Map<String, kotlinx.serialization.json.JsonElement> ?: emptyMap()) }
-                            val did = obj["did"]?.toString()?.trim('"') ?: ""
-                            val secret = obj["secret"]?.toString()?.trim('"') ?: ""
-                            val name = obj["clientName"]?.toString()?.trim('"') ?: "Chrome on PC"
-                            val relay = obj["relay"]?.toString()?.trim('"') ?: "https://mygithub-relay.workers.dev"
+                            val rawText = payload.secret.trim()
+                            if (rawText.startsWith("{") && rawText.endsWith("}")) {
+                                val jsonElem = kotlinx.serialization.json.Json.parseToJsonElement(rawText)
+                                val obj = jsonElem as? kotlinx.serialization.json.JsonObject
+                                val did = obj?.get("did")?.toString()?.trim('"') ?: ""
+                                val secret = obj?.get("secret")?.toString()?.trim('"') ?: ""
+                                val name = obj?.get("clientName")?.toString()?.trim('"') ?: "Chrome on PC"
+                                val relay = obj?.get("relay")?.toString()?.trim('"') ?: "https://mygithub-relay.workers.dev"
 
-                            if (did.isNotBlank() && secret.isNotBlank()) {
-                                com.mygithub.lab.security.device.DeviceTrustStore.savePairedDevice(
-                                    context,
-                                    com.mygithub.lab.security.device.PairedDevice(did, name, secret, relay)
-                                )
-                                android.widget.Toast.makeText(context, "已成功绑定设备: $name", android.widget.Toast.LENGTH_SHORT).show()
+                                if (did.isNotBlank() && secret.isNotBlank()) {
+                                    com.mygithub.lab.security.device.DeviceTrustStore.savePairedDevice(
+                                        context,
+                                        com.mygithub.lab.security.device.PairedDevice(did, name, secret, relay)
+                                    )
+                                    android.widget.Toast.makeText(context, "已成功绑定设备: $name", android.widget.Toast.LENGTH_SHORT).show()
+                                } else {
+                                    android.widget.Toast.makeText(context, "二维码数据不完整", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            } else {
+                                // 普通 TOTP 密钥
+                                com.mygithub.lab.security.totp.TotpStore.saveSecret(context, payload.secret)
+                                com.mygithub.lab.security.totp.TotpStore.saveIssuerAccount(context, payload.issuer, payload.account)
+                                android.widget.Toast.makeText(context, "已导入 TOTP 密钥", android.widget.Toast.LENGTH_SHORT).show()
                             }
-                        } catch (_: Exception) {
-                            // 普通 TOTP 密钥
-                            com.mygithub.lab.security.totp.TotpStore.saveSecret(context, payload.secret)
-                            com.mygithub.lab.security.totp.TotpStore.saveIssuerAccount(context, payload.issuer, payload.account)
-                            android.widget.Toast.makeText(context, "已导入 TOTP 密钥", android.widget.Toast.LENGTH_SHORT).show()
+                        } catch (e: Exception) {
+                            android.widget.Toast.makeText(context, "解析失败: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
                         }
                         navController.popBackStack()
                     },
