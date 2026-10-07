@@ -1,0 +1,44 @@
+# ===== Gradle =====
+.gradle/
+build/
+app/build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# ===== Android Studio / IntelliJ =====
+.idea/
+*.iml
+*.hprof
+captures/
+.externalNativeBuild/
+.cxx/
+
+# ===== Kotlin =====
+.kotlin/
+
+# ===== 敏感信息（绝不入库）=====
+# 本地 SDK 路径 + Release 签名凭据
+local.properties
+# 签名密钥库
+keystore/
+*.jks
+*.keystore
+
+# ===== 构建产物 =====
+*.apk
+*.aab
+*.ap_
+*.dex
+release/
+output/
+
+# ===== Node / Cloudflare Relay =====
+node_modules/
+.wrangler/
+dist/
+*.log
+npm-debug.log*
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+desktop.ini
