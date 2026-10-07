@@ -63,6 +63,7 @@ import com.mygithub.lab.ui.screens.notifications.NotificationsScreen
 import com.mygithub.lab.ui.screens.repos.RepoDetailScreen
 import com.mygithub.lab.ui.screens.repos.ReposScreen
 import com.mygithub.lab.ui.screens.issues.IssueDetailScreen
+import com.mygithub.lab.ui.screens.about.AboutScreen
 import com.mygithub.lab.ui.theme.MyGitHubTheme
 
 data class TabItem(
@@ -77,6 +78,7 @@ object Routes {
     const val REPO_DETAIL = "repo_detail"
     const val ISSUE_DETAIL = "issue_detail"
     const val SEARCH = "search"
+    const val ABOUT = "about"
 }
 
 @androidx.compose.material3.ExperimentalMaterial3Api
@@ -184,6 +186,13 @@ fun MyGitHubApp() {
                     }
                 )
             }
+            composable(Routes.ABOUT) {
+                BackHandler(enabled = true) { navController.popBackStack() }
+                AboutScreen(
+                    onBack = { navController.popBackStack() },
+                    onShowUpdate = { appUpdateInfo = it }
+                )
+            }
         }
 
         // 全局更新弹窗（任何页面上均可展示）
@@ -233,7 +242,8 @@ private fun MainScaffold(
             4 -> ProfileScreen(
                 onRepoClick = onRepoClick,
                 onLogout = onLogout,
-                onShowUpdate = onShowUpdate
+                onShowUpdate = onShowUpdate,
+                onNavigateToAbout = { navController.navigate(Routes.ABOUT) }
             )
         }
 

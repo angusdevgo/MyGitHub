@@ -3,6 +3,7 @@ package com.mygithub.lab.ui.screens.profile
 import coil3.compose.AsyncImage
 import coil3.request.crossfade
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,6 +30,9 @@ import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -81,7 +85,8 @@ import kotlinx.coroutines.launch
 fun ProfileScreen(
     onRepoClick: (GitHubRepo) -> Unit,
     onLogout: () -> Unit,
-    onShowUpdate: (com.mygithub.lab.data.update.UpdateInfo) -> Unit = {}
+    onShowUpdate: (com.mygithub.lab.data.update.UpdateInfo) -> Unit = {},
+    onNavigateToAbout: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val repository = remember { GitHubRepository.get(context) }
@@ -105,6 +110,7 @@ fun ProfileScreen(
     var totpSecret by remember { mutableStateOf<String?>(TotpStore.getSecret(context)) }
     var totpIssuer by remember { mutableStateOf<String?>(TotpStore.getIssuer(context)) }
     var showLogoutDialog by remember { mutableStateOf(false) }
+    var showAccountDialog by remember { mutableStateOf(false) }
     val loginTypeLabel = remember { TokenStore.getLoginType(context)?.let { if (it == "pat") "PAT 令牌" else "Device Flow" } ?: "未知" }
 
     // 当从“安全中心”返回或组件初次显示时，强制重新查询最新 2FA 绑定状态，杜绝界面假死
@@ -151,24 +157,17 @@ fun ProfileScreen(
     }
 
     if (showThemeDialog) {
-        AlertDialog(
-            onDismissRequest = { showThemeDialog = false },
-            title = { Text("外观主题") },
-            text = {
-                Column {
-                    listOf("system" to "跟随系统", "dark" to "深色", "light" to "浅色").forEach { (mode, label) ->
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable {
-                            themeMode = mode
-                            context.getSharedPreferences("mygithub_prefs", android.content.Context.MODE_PRIVATE).edit().putString("theme_mode", mode).apply()
-                            showThemeDialog = false
-                        }.padding(vertical = 8.dp)) {
-                            RadioButton(selected = themeMode == mode, onClick = { themeMode = mode; context.getSharedPreferences("mygithub_prefs", android.content.Context.MODE_PRIVATE).edit().putString("theme_mode", mode).apply(); showThemeDialog = false })
-                            Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(start = 8.dp))
-                        }
-                    }
-                }
+        ThemeSelectionDialog(
+            currentMode = themeMode,
+            onModeSelected = { mode ->
+                themeMode = mode
+                context.getSharedPreferences("mygithub_prefs", android.content.Context.MODE_PRIVATE)
+                    .edit()
+                    .putString("theme_mode", mode)
+                    .apply()
+                showThemeDialog = false
             },
-            confirmButton = { TextButton(onClick = { showThemeDialog = false }) { Text("关闭") } }
+            onDismiss = { showThemeDialog = false }
         )
     }
 
@@ -367,52 +366,16 @@ fun ProfileScreen(
                     iconColor = MaterialTheme.colorScheme.secondary,
                     title = "账号",
                     subtitle = "登录方式：${loginTypeLabel}",
-                    onClick = { }
+                    onClick = { showAccountDialog = true }
                 )
             }
-            item(key = "menu_cache") {
+            item(key = "menu_about") {
                 MenuRow(
-                    icon = Icons.Filled.Delete,
-                    iconColor = MaterialTheme.colorScheme.error,
-                    title = "清理缓存",
-                    subtitle = "清除仓库与榜单离线缓存",
-                    onClick = { }
-                )
-            }
-            item(key = "menu_update") {
-                var checkingUpdate by remember { mutableStateOf(false) }
-                MenuRow(
-                    icon = Icons.Filled.SystemUpdate,
+                    icon = Icons.Filled.Info,
                     iconColor = MaterialTheme.colorScheme.primary,
-                    title = "检查新版本",
-                    subtitle = if (checkingUpdate) "正在检查更新..." else "当前版本 v0.0.1",
-                    onClick = {
-                        if (checkingUpdate) return@MenuRow
-                        checkingUpdate = true
-                        scope.launch {
-                            try {
-                                val update = repository.checkAppUpdate()
-                                if (update != null) {
-                                    onShowUpdate(update)
-                                } else {
-                                    android.widget.Toast.makeText(context, "已是最新版本 v0.0.1", android.widget.Toast.LENGTH_SHORT).show()
-                                }
-                            } catch (_: Exception) {
-                                android.widget.Toast.makeText(context, "检查更新失败，请稍后重试", android.widget.Toast.LENGTH_SHORT).show()
-                            } finally {
-                                checkingUpdate = false
-                            }
-                        }
-                    }
-                )
-            }
-            item {
-                Text(
-                    "MyGitHub v0.0.1 · 开源",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline,
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    title = "关于",
+                    subtitle = "v0.0.1 · 开源与更新",
+                    onClick = { onNavigateToAbout() }
                 )
             }
         }
@@ -427,10 +390,69 @@ fun ProfileScreen(
             confirmButton = {
                 TextButton(onClick = {
                     showLogoutDialog = false
+                    showAccountDialog = false
                     onLogout()
                 }) { Text("退出登录", color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = { TextButton(onClick = { showLogoutDialog = false }) { Text("取消") } }
+        )
+    }
+
+    if (showAccountDialog) {
+        val rawToken = remember { TokenStore.getToken(context) ?: "" }
+        val maskedToken = remember(rawToken) {
+            if (rawToken.length > 8) "${rawToken.take(4)}...${rawToken.takeLast(4)}" else rawToken
+        }
+        AlertDialog(
+            onDismissRequest = { showAccountDialog = false },
+            title = { Text("账号信息") },
+            text = {
+                androidx.compose.foundation.layout.Column(
+                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp)
+                ) {
+                    androidx.compose.foundation.layout.Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween
+                    ) {
+                        Text("用户名", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(user?.login ?: "未获取", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                    }
+                    androidx.compose.foundation.layout.Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween
+                    ) {
+                        Text("登录方式", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(loginTypeLabel, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                    }
+                    androidx.compose.foundation.layout.Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween
+                    ) {
+                        Text("凭证掩码", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        androidx.compose.foundation.layout.Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.clickable {
+                                clipboard.setText(androidx.compose.ui.text.AnnotatedString(rawToken))
+                                android.widget.Toast.makeText(context, "已复制完整凭证", android.widget.Toast.LENGTH_SHORT).show()
+                            }.padding(4.dp)
+                        ) {
+                            Text(maskedToken, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                            androidx.compose.foundation.layout.Spacer(Modifier.width(4.dp))
+                            Icon(Icons.Filled.ContentCopy, contentDescription = "复制", modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showAccountDialog = false }) { Text("关闭") }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showLogoutDialog = true },
+                    colors = androidx.compose.material3.ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) { Text("退出账号") }
+            }
         )
     }
 }
@@ -541,24 +563,17 @@ private fun StatListScreen(
     }
 
     if (showThemeDialog) {
-        AlertDialog(
-            onDismissRequest = { showThemeDialog = false },
-            title = { Text("外观主题") },
-            text = {
-                Column {
-                    listOf("system" to "跟随系统", "dark" to "深色", "light" to "浅色").forEach { (mode, label) ->
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable {
-                            themeMode = mode
-                            context.getSharedPreferences("mygithub_prefs", android.content.Context.MODE_PRIVATE).edit().putString("theme_mode", mode).apply()
-                            showThemeDialog = false
-                        }.padding(vertical = 8.dp)) {
-                            RadioButton(selected = themeMode == mode, onClick = { themeMode = mode; context.getSharedPreferences("mygithub_prefs", android.content.Context.MODE_PRIVATE).edit().putString("theme_mode", mode).apply(); showThemeDialog = false })
-                            Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(start = 8.dp))
-                        }
-                    }
-                }
+        ThemeSelectionDialog(
+            currentMode = themeMode,
+            onModeSelected = { mode ->
+                themeMode = mode
+                context.getSharedPreferences("mygithub_prefs", android.content.Context.MODE_PRIVATE)
+                    .edit()
+                    .putString("theme_mode", mode)
+                    .apply()
+                showThemeDialog = false
             },
-            confirmButton = { TextButton(onClick = { showThemeDialog = false }) { Text("关闭") } }
+            onDismiss = { showThemeDialog = false }
         )
     }
 
@@ -766,4 +781,132 @@ private fun TotpQuickCard(
             modifier = Modifier.fillMaxWidth()
         )
     }
+}
+
+@Composable
+private fun ThemeSelectionDialog(
+    currentMode: String,
+    onModeSelected: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val modes = listOf(
+        Triple("system", "跟随系统", "根据系统偏好自动切换深浅外观"),
+        Triple("dark", "深色模式", "Nord 极客深空暗夜，柔和省电"),
+        Triple("light", "浅色模式", "高对比度素雅明亮界面")
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .background(MaterialTheme.colorScheme.primaryContainer, androidx.compose.foundation.shape.CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Palette,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+        },
+        title = {
+            Text(
+                "外观主题",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                modes.forEach { (mode, title, desc) ->
+                    val isSelected = currentMode == mode
+                    val icon = when (mode) {
+                        "dark" -> Icons.Filled.Star
+                        "light" -> Icons.Filled.Palette
+                        else -> Icons.Filled.Refresh
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                                else MaterialTheme.colorScheme.surfaceContainerHigh,
+                                RoundedCornerShape(12.dp)
+                            )
+                            .then(
+                                if (isSelected) {
+                                    Modifier.border(
+                                        width = 1.5.dp,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                } else Modifier
+                            )
+                            .clickable { onModeSelected(mode) }
+                            .padding(horizontal = 14.dp, vertical = 12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .background(
+                                        if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                                        else MaterialTheme.colorScheme.surface,
+                                        androidx.compose.foundation.shape.CircleShape
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = icon,
+                                    contentDescription = null,
+                                    tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+
+                            Spacer(Modifier.width(12.dp))
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = title,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = desc,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            if (isSelected) {
+                                Icon(
+                                    imageVector = Icons.Filled.Check,
+                                    contentDescription = "已选择",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("关闭")
+            }
+        }
+    )
 }
