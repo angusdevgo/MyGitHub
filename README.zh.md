@@ -40,9 +40,7 @@
 
 ---
 
-> 🔗 **致敬与参考来源**：
-> - UI 设计语言、个性主题体系与组件架构参考自：[**komi-store/komi-store**](https://github.com/komi-store/komi-store)（GPL-3.0 协议）。
-> - 工程纪律、Agent 执行契约与文档规范参考自：[**angusdevgo/Seep-Reverse-Lab**](https://github.com/angusdevgo/Seep-Reverse-Lab)（GPL-3.0 协议）。
+> 🔗 **社区**：
 > - 社区支持与技术讨论：[**LINUX DO**](https://linux.do/)。
 
 ---

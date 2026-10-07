@@ -40,9 +40,7 @@
 
 ---
 
-> 🔗 **Attribution & Reference Sources**:
-> - UI design language, personality theme system & component architecture referenced from: [**komi-store/komi-store**](https://github.com/komi-store/komi-store) (GPL-3.0 License).
-> - Engineering discipline, agent execution contracts & documentation conventions referenced from: [**angusdevgo/Seep-Reverse-Lab**](https://github.com/angusdevgo/Seep-Reverse-Lab) (GPL-3.0 License).
+> 🔗 **Community**:
 > - Community support & technical discussions: [**LINUX DO**](https://linux.do/).
 
 ---
