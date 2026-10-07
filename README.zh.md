@@ -362,10 +362,20 @@ git push origin feature/your-feature
 
 ---
 
+## 社区
+
+问题反馈、使用交流与新版本发布，都在 [**LINUX DO**](https://linux.do/) 社区。
+
+---
+
 <div align="center">
 
 **Kotlin · Jetpack Compose · Material 3 · Room · Retrofit · CameraX**
 
 ⭐ 如果它对你有用，点个 Star 能帮更多人发现它。
+
+<a href="https://linux.do/">
+  <img src="https://img.shields.io/badge/%E5%8A%A0%E5%85%A5%E7%A4%BE%E5%8C%BA-LINUX%20DO-23272A?style=for-the-badge" alt="LINUX DO" />
+</a>
 
 </div>

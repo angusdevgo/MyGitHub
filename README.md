@@ -362,10 +362,20 @@ This program is free software: you can redistribute it and/or modify it under th
 
 ---
 
+## Community
+
+Questions, feedback, and release announcements live in the [**LINUX DO**](https://linux.do/) community — a Chinese-speaking forum for developers and tech enthusiasts.
+
+---
+
 <div align="center">
 
 **Kotlin · Jetpack Compose · Material 3 · Room · Retrofit · CameraX**
 
 ⭐ If this is useful to you, a star helps others find it.
+
+<a href="https://linux.do/">
+  <img src="https://img.shields.io/badge/Join%20us%20on-LINUX%20DO-23272A?style=for-the-badge" alt="LINUX DO" />
+</a>
 
 </div>
