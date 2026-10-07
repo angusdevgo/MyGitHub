@@ -2,10 +2,10 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <title>MyGitHub 跨设备 2FA</title>
+  <title>MyGitHub 2FA</title>
   <style>
     body {
-      width: 340px;
+      width: 350px;
       margin: 0;
       padding: 16px;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -25,11 +25,12 @@
     }
     .badge {
       font-size: 11px;
-      padding: 2px 6px;
+      padding: 2px 8px;
       border-radius: 10px;
       background: #238636;
       color: #ffffff;
       margin-left: auto;
+      font-weight: 600;
     }
     .badge.disconnected {
       background: #da3633;
@@ -52,14 +53,10 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      padding: 8px;
+      padding: 12px;
       background: #ffffff;
       border-radius: 8px;
       margin: 8px 0;
-    }
-    canvas {
-      max-width: 180px;
-      max-height: 180px;
     }
     .field {
       margin-bottom: 10px;
@@ -99,6 +96,12 @@
     button:hover {
       background: #2ea043;
     }
+    button.primary {
+      background: #1f6feb;
+    }
+    button.primary:hover {
+      background: #388bfd;
+    }
     button.secondary {
       background: #21262d;
       border: 1px solid #30363d;
@@ -113,6 +116,12 @@
       color: #8b949e;
       text-align: center;
       margin-top: 6px;
+      line-height: 1.4;
+    }
+    .action-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
     }
   </style>
   <script src="../libs/qrcode.min.js"></script>
@@ -128,21 +137,30 @@
     <div class="qr-container">
       <div id="qrcode"></div>
     </div>
-    <div class="hint">打开手机 MyGitHub → 设置 → 安全中心 → 跨设备配对 扫描上方二维码</div>
+    <div class="hint">打开手机 MyGitHub → 应用设置 → 安全中心 → 跨设备 2FA 配对，扫描上方二维码</div>
+    
+    <div style="margin-top: 10px;">
+      <button id="paired-confirm-btn" class="primary">手机已扫码？点击确认已配对</button>
+      <button id="test-call-btn" class="secondary" style="margin-top: 6px;">🚀 测试向手机发送验证弹窗</button>
+    </div>
   </div>
 
   <div class="section">
-    <div class="section-title">中继与账号配置</div>
+    <div class="section-title">连接与网络选项</div>
+    <div class="field">
+      <label>手机局域网 IP (同一 Wi-Fi 可免中继直连)</label>
+      <input type="text" id="phone-ip-input" placeholder="例如: 192.168.1.100" />
+    </div>
     <div class="field">
       <label>GitHub 用户名</label>
       <input type="text" id="account-input" placeholder="angusdevgo" />
     </div>
     <div class="field">
-      <label>Cloudflare Relay 地址 (可选)</label>
+      <label>Cloudflare Relay 地址 (跨外网使用)</label>
       <input type="text" id="relay-input" placeholder="https://mygithub-relay.workers.dev" />
     </div>
-    <button id="save-btn">保存并更新配对码</button>
-    <button id="reset-btn" class="secondary">重新生成设备密钥</button>
+    <button id="save-btn" class="secondary">保存网络设置</button>
+    <button id="reset-btn" class="secondary">重置并重新生成密钥</button>
   </div>
 
   <script src="popup.js" type="module"></script>

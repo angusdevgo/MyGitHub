@@ -71,6 +71,12 @@ class RelayClient private constructor(private val context: Context) {
     private val _incomingRequests = MutableSharedFlow<IncomingAuthRequest>(extraBufferCapacity = 8)
     val incomingRequests = _incomingRequests.asSharedFlow()
 
+    fun emitLocalChallenge(req: IncomingAuthRequest) {
+        scope.launch {
+            _incomingRequests.emit(req)
+        }
+    }
+
     fun startListening() {
         if (isRunning) return
         isRunning = true

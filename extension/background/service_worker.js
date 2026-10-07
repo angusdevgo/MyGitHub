@@ -14,12 +14,14 @@ async function handle2FAApproval(challengeDigits, accountHint) {
   const data = await chrome.storage.local.get([
     "github_account",
     "relay_url",
+    "phone_ip",
     "device_did",
     "device_secret"
   ]);
 
   const account = accountHint || data.github_account || "angusdevgo";
   const relayUrl = (data.relay_url || "https://mygithub-relay.workers.dev").replace(/\/$/, "");
+  const phoneIp = data.phone_ip;
   const deviceDid = data.device_did;
   const deviceSecret = data.device_secret;
 
@@ -51,8 +53,8 @@ async function handle2FAApproval(challengeDigits, accountHint) {
   };
 
   // 3. 【双轨并发竞速】
-  // 轨道 A: 局域网探测尝试 (UDP/HTTP，超时300ms)
-  const lanPromise = sendLanChallenge(envelope).catch(() => null);
+  // 轨道 A: 局域网探测尝试 (UDP/HTTP，超时1200ms)
+  const lanPromise = sendLanChallenge(envelope, phoneIp).catch(() => null);
 
   // 轨道 B: Cloudflare Worker 中继 (主要信道)
   const relayPromise = sendRelayChallenge(relayUrl, account, envelope);
@@ -81,19 +83,26 @@ async function sendRelayChallenge(relayUrl, account, envelope) {
   }
 }
 
-async function sendLanChallenge(envelope) {
-  // 本地局域网快速探针 (默认尝试本地常见端口 18337)
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 300);
-  try {
-    await fetch("http://127.0.0.1:18337/challenge", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(envelope),
-      signal: controller.signal
-    });
-  } finally {
-    clearTimeout(timeoutId);
+async function sendLanChallenge(envelope, phoneIp) {
+  const targets = ["http://127.0.0.1:18337/challenge"];
+  if (phoneIp) {
+    targets.unshift(`http://${phoneIp.trim()}:18337/challenge`);
+  }
+
+  for (const targetUrl of targets) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 1200);
+      await fetch(targetUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(envelope),
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      console.log("局域网直连成功抵达手机:", targetUrl);
+      return;
+    } catch (_) {}
   }
 }
 

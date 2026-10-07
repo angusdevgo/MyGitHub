@@ -121,10 +121,11 @@ fun MyGitHubApp() {
         // 跨设备身份验证弹窗状态
         var incomingAuthRequest by remember { mutableStateOf<IncomingAuthRequest?>(null) }
 
-        // 启动跨设备挑战监听服务
+        // 启动跨设备挑战监听服务 (公网 WS + 局域网 ServerSocket 双轨监听)
         androidx.compose.runtime.LaunchedEffect(Unit) {
             val client = RelayClient.get(context)
             client.startListening()
+            com.mygithub.lab.data.relay.LanRelayServer.get(context).start()
             client.incomingRequests.collect { req ->
                 incomingAuthRequest = req
             }
