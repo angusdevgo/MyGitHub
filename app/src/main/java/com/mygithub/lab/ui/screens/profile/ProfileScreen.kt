@@ -361,7 +361,7 @@ fun ProfileScreen(
                     icon = Icons.Filled.Info,
                     iconColor = MaterialTheme.colorScheme.primary,
                     title = "关于",
-                    subtitle = "v0.0.1 · 开源与更新",
+                    subtitle = "v${com.mygithub.lab.BuildConfig.VERSION_NAME} · 开源与更新",
                     onClick = { onNavigateToAbout() }
                 )
             }

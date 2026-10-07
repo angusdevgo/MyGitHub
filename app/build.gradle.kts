@@ -12,12 +12,20 @@ android {
     namespace = "com.mygithub.lab"
     compileSdk = 34
 
+    val versionFile = rootProject.file("VERSION")
+    val appVersionName = if (versionFile.exists()) versionFile.readText().trim() else "0.0.1"
+    val versionParts = appVersionName.split(".").mapNotNull { it.toIntOrNull() }
+    val major = versionParts.getOrElse(0) { 0 }
+    val minor = versionParts.getOrElse(1) { 0 }
+    val patch = versionParts.getOrElse(2) { 1 }
+    val appVersionCode = major * 10000 + minor * 100 + patch
+
     defaultConfig {
         applicationId = "com.mygithub.lab"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.0.1"
+        versionCode = appVersionCode
+        versionName = appVersionName
     }
 
     signingConfigs {

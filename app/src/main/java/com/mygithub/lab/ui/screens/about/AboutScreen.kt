@@ -159,7 +159,7 @@ fun AboutScreen(
             Spacer(modifier = Modifier.height(4.dp))
 
             Text(
-                text = "Version 0.0.1",
+                text = "Version ${com.mygithub.lab.BuildConfig.VERSION_NAME}",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -196,7 +196,7 @@ fun AboutScreen(
                                 if (update != null) {
                                     onShowUpdate(update)
                                 } else {
-                                    Toast.makeText(context, "当前已是最新版本 v0.0.1", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "当前已是最新版本 v${com.mygithub.lab.BuildConfig.VERSION_NAME}", Toast.LENGTH_SHORT).show()
                                 }
                             } catch (_: Exception) {
                                 Toast.makeText(context, "检查更新失败，请检查网络", Toast.LENGTH_SHORT).show()
