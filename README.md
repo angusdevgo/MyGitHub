@@ -4,7 +4,7 @@
 
 [English](README.md) | [中文](README.zh.md)
 
-<img src="docs/images/theme.png" alt="MyGitHub" width="500" />
+<img src="docs/images/app_icon.png" alt="MyGitHub" width="150" />
 
 <p><strong>A GitHub client that runs entirely on your phone</strong></p>
 <p>Android · Zero-Server · Local Vault · TOTP · Jetpack Compose</p>

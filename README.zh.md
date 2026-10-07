@@ -4,7 +4,7 @@
 
 **中文** | [English](README.md)
 
-<img src="docs/images/theme.png" alt="MyGitHub" width="500" />
+<img src="docs/images/app_icon.png" alt="MyGitHub" width="150" />
 
 <p><strong>一个完全跑在你手机上的 GitHub 客户端</strong></p>
 <p>Android · 零服务器 · 本地优先 · TOTP · Jetpack Compose</p>
