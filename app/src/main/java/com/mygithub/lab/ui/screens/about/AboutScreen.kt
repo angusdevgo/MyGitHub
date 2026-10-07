@@ -25,7 +25,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.ReportProblem
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.AlertDialog
@@ -242,17 +241,6 @@ fun AboutScreen(
                     subtitle = "提交 Issue 或功能建议",
                     onClick = {
                         openUrl(context, "https://github.com/angusdevgo/MyGitHub/issues")
-                    }
-                )
-
-                GroupDivider()
-
-                AboutMenuItem(
-                    icon = Icons.Filled.Forum,
-                    title = "社区讨论",
-                    subtitle = "LINUX DO 社区交流帖",
-                    onClick = {
-                        openUrl(context, "https://linux.do")
                     }
                 )
             }
