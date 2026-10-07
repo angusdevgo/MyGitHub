@@ -35,6 +35,7 @@ class GitHubRepository(context: Context) {
     private val okClient = OkHttpClient.Builder()
         .connectTimeout(java.time.Duration.ofSeconds(15))
         .readTimeout(java.time.Duration.ofSeconds(30))
+        .proxySelector(com.mygithub.lab.data.network.ProxyManager.createDynamicProxySelector(appContext))
         .build()
 
     private val api: GitHubApi = Retrofit.Builder()

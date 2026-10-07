@@ -99,6 +99,7 @@ MyGitHub sidesteps this by not supporting Web Flow at all. It only does **Device
 - Live countdown, one-tap copy
 - Survives logout — your 2FA enrollment is never cleared
 - **In-app self-updater with SHA-256 integrity verification** — checks GitHub Releases on launch, verifies checksum before install
+- **Network acceleration & proxy support** — Direct, public GitHub CDN mirrors, and custom HTTP/SOCKS5 proxies with latency probe
 
 </td></tr>
 </table>

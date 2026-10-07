@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Floating capsule navigation** — overlay bottom bar with a GPU-driven spring-animated indicator that does not trigger recomposition.
 - **Custom pull-to-refresh indicator** — explicit refresh state with a continuously animated indicator.
 - **In-app self-updater with SHA-256 integrity verification** — automatically checks GitHub Releases on launch, parses SemVer tags, streams the APK to cache with live progress, computes and validates the SHA-256 digest against the release notes to prevent tampering, and invokes the system package installer via `FileProvider`.
+- **Network acceleration & proxy engine** — built-in support for direct connection, public GitHub mirrors (GHProxy / Mirror GHProxy / DDLC), and custom HTTP / SOCKS5 proxy nodes with on-the-fly latency testing.
+- **Dedicated Application Settings screen** — streamlined Profile menu into 4 core items (Stars, Recent Views, Settings, About) and moved Theme, Security, Account, and Network Proxy options into a unified secondary screen.
 
 ### Authentication
 

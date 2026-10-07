@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -86,7 +87,8 @@ fun ProfileScreen(
     onRepoClick: (GitHubRepo) -> Unit,
     onLogout: () -> Unit,
     onShowUpdate: (com.mygithub.lab.data.update.UpdateInfo) -> Unit = {},
-    onNavigateToAbout: () -> Unit = {}
+    onNavigateToAbout: () -> Unit = {},
+    onNavigateToSettings: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val repository = remember { GitHubRepository.get(context) }
@@ -94,6 +96,7 @@ fun ProfileScreen(
     var user by remember { mutableStateOf<GitHubUser?>(null) }
     var showStars by remember { mutableStateOf(false) }
     var showSecurity by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
     var showRecentViews by remember { mutableStateOf(false) }
     var showStatPage by remember { mutableStateOf<String?>(null) } // "repos" | "followers" | "following"
     var loading by remember { mutableStateOf(true) }
@@ -144,6 +147,17 @@ fun ProfileScreen(
     when {
         showStars -> { StarsScreen(onRepoClick = onRepoClick, onBack = { showStars = false }); return }
         showSecurity -> { com.mygithub.lab.ui.screens.security.SecurityScreen(onBack = { showSecurity = false }); return }
+        showSettings -> {
+            com.mygithub.lab.ui.screens.settings.SettingsScreen(
+                onBack = { showSettings = false },
+                onOpenThemeDialog = { showThemeDialog = true },
+                onOpenSecurity = { showSecurity = true },
+                onOpenAccount = { showAccountDialog = true },
+                themeLabel = themeLabel,
+                loginTypeLabel = loginTypeLabel
+            )
+            return
+        }
         showRecentViews -> { RecentViewsScreen(onRepoClick = onRepoClick, onBack = { showRecentViews = false }); return }
         showStatPage != null -> {
             StatListScreen(
@@ -315,10 +329,6 @@ fun ProfileScreen(
                 }
             }
 
-            // ===== 媒体库 =====
-            item(key = "media_title") {
-                Text("媒体库", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            }
             item(key = "menu_stars") {
                 MenuRow(
                     icon = Icons.Filled.Star,
@@ -332,41 +342,18 @@ fun ProfileScreen(
                 MenuRow(
                     icon = Icons.Filled.History,
                     iconColor = MaterialTheme.colorScheme.primary,
-                    title = "最近查看",
+                    title = "最近浏览",
                     subtitle = "你访问过的仓库",
                     onClick = { showRecentViews = true }
                 )
             }
-
-            // ===== 设置 =====
-            item(key = "settings_title") {
-                Text("设置", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            }
-            item(key = "menu_theme") {
+            item(key = "menu_settings") {
                 MenuRow(
-                    icon = Icons.Filled.Palette,
-                    iconColor = MaterialTheme.colorScheme.tertiary,
-                    title = "外观主题",
-                    subtitle = themeLabel,
-                    onClick = { showThemeDialog = true }
-                )
-            }
-            item(key = "menu_security") {
-                MenuRow(
-                    icon = Icons.Filled.Security,
-                    iconColor = Color(0xFF4CAF50),
-                    title = "安全中心",
-                    subtitle = "本地 TOTP 动态码 · GitHub 二次验证",
-                    onClick = { showSecurity = true }
-                )
-            }
-            item(key = "menu_account") {
-                MenuRow(
-                    icon = Icons.Filled.Label,
+                    icon = Icons.Filled.Settings,
                     iconColor = MaterialTheme.colorScheme.secondary,
-                    title = "账号",
-                    subtitle = "登录方式：${loginTypeLabel}",
-                    onClick = { showAccountDialog = true }
+                    title = "应用设置",
+                    subtitle = "外观主题 · 安全中心 · 账号 · 网络加速",
+                    onClick = { showSettings = true }
                 )
             }
             item(key = "menu_about") {

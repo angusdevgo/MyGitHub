@@ -18,7 +18,11 @@ import kotlin.coroutines.coroutineContext
  */
 class ApkDownloader(
     private val context: Context,
-    private val client: OkHttpClient = OkHttpClient()
+    private val client: OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(java.time.Duration.ofSeconds(15))
+        .readTimeout(java.time.Duration.ofSeconds(60))
+        .proxySelector(com.mygithub.lab.data.network.ProxyManager.createDynamicProxySelector(context))
+        .build()
 ) {
 
     sealed interface Result {
@@ -54,7 +58,8 @@ class ApkDownloader(
             apkFile.delete()
         }
 
-        val request = Request.Builder().url(info.apkUrl).build()
+        val downloadUrl = com.mygithub.lab.data.network.ProxyManager.wrapUrlIfMirror(context, info.apkUrl)
+        val request = Request.Builder().url(downloadUrl).build()
 
         try {
             client.newCall(request).execute().use { response ->
