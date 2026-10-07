@@ -50,8 +50,10 @@ import com.mygithub.lab.data.auth.TokenStore
 import com.mygithub.lab.data.api.GitHubIssue
 import com.mygithub.lab.data.api.GitHubRepo
 import com.mygithub.lab.data.repo.GitHubRepository
+import com.mygithub.lab.data.update.UpdateInfo
 import com.mygithub.lab.ui.components.KomiFloatingBottomBar
 import com.mygithub.lab.ui.components.KomiNavItem
+import com.mygithub.lab.ui.components.UpdateDialog
 import com.mygithub.lab.ui.screens.login.LoginScreen
 import com.mygithub.lab.ui.screens.home.HomeScreen
 import com.mygithub.lab.ui.screens.profile.ProfileScreen
@@ -100,8 +102,29 @@ fun MyGitHubApp() {
         val isLoggedIn = remember { TokenStore.isLoggedIn(context) }
         var loggedIn by remember { mutableStateOf(isLoggedIn) }
 
+        // 应用内更新信息状态
+        var appUpdateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
+
+        // 启动时静默检查更新一次（后台异步，零阻塞）
+        androidx.compose.runtime.LaunchedEffect(Unit) {
+            kotlinx.coroutines.delay(1200)
+            try {
+                val update = GitHubRepository.get(context).checkAppUpdate()
+                if (update != null) {
+                    appUpdateInfo = update
+                }
+            } catch (_: Exception) {}
+        }
+
         if (!loggedIn) {
             LoginScreen(onLoginSuccess = { loggedIn = true })
+            // 登录界面也支持弹窗展示更新
+            appUpdateInfo?.let { info ->
+                UpdateDialog(
+                    info = info,
+                    onDismiss = { appUpdateInfo = null }
+                )
+            }
             return@MyGitHubTheme
         }
 
@@ -125,7 +148,8 @@ fun MyGitHubApp() {
                     onLogout = {
                         TokenStore.clear(context)
                         loggedIn = false
-                    }
+                    },
+                    onShowUpdate = { appUpdateInfo = it }
                 )
             }
             composable(Routes.REPO_DETAIL) {
@@ -161,6 +185,14 @@ fun MyGitHubApp() {
                 )
             }
         }
+
+        // 全局更新弹窗（任何页面上均可展示）
+        appUpdateInfo?.let { info ->
+            UpdateDialog(
+                info = info,
+                onDismiss = { appUpdateInfo = null }
+            )
+        }
     }
 }
 
@@ -170,7 +202,8 @@ private fun MainScaffold(
     navController: androidx.navigation.NavController,
     onRepoClick: (GitHubRepo) -> Unit,
     onIssueClick: (GitHubIssue) -> Unit,
-    onLogout: () -> Unit
+    onLogout: () -> Unit,
+    onShowUpdate: (UpdateInfo) -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
@@ -199,7 +232,8 @@ private fun MainScaffold(
             3 -> ReposScreen(onRepoClick = onRepoClick, onIssueClick = onIssueClick)
             4 -> ProfileScreen(
                 onRepoClick = onRepoClick,
-                onLogout = onLogout
+                onLogout = onLogout,
+                onShowUpdate = onShowUpdate
             )
         }
 

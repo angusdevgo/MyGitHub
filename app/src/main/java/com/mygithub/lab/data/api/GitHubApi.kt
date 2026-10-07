@@ -53,6 +53,17 @@ interface GitHubApi {
         @Query("per_page") perPage: Int = 20
     ): List<GitHubRelease>
 
+    /**
+     * 最新正式版 Release（不含 pre-release / draft）。
+     * 仓库尚无 Release 时返回 404。
+     */
+    @GET("repos/{owner}/{repo}/releases/latest")
+    suspend fun getLatestRelease(
+        @Header("Authorization") token: String? = null,
+        @Path("owner") owner: String,
+        @Path("repo") repo: String
+    ): GitHubRelease
+
     @GET("repos/{owner}/{repo}/issues")
     suspend fun getRepoIssues(
         @Header("Authorization") token: String,
@@ -351,9 +362,11 @@ data class GitHubRelease(
     val id: Long = 0,
     val tag_name: String = "",
     val name: String? = null,
+    val body: String? = null,
     val prerelease: Boolean = false,
     val draft: Boolean = false,
     val html_url: String = "",
+    val published_at: String? = null,
     val assets: List<GitHubAsset> = emptyList()
 )
 

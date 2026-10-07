@@ -98,6 +98,7 @@ MyGitHub sidesteps this by not supporting Web Flow at all. It only does **Device
 - Import by QR scan (CameraX + ML Kit) or manual Base32 / `otpauth://` paste
 - Live countdown, one-tap copy
 - Survives logout — your 2FA enrollment is never cleared
+- **In-app self-updater with SHA-256 integrity verification** — checks GitHub Releases on launch, verifies checksum before install
 
 </td></tr>
 </table>
@@ -235,6 +236,9 @@ GitHub's notification payload doesn't include issue state. Instead of parsing ti
 
 **The 2FA secret uses plain app-private storage.**
 An earlier version used `EncryptedSharedPreferences`. On some OEM ROMs, a Keystore reset causes it to silently return `null` — which means the user loses their 2FA enrollment and gets locked out. The secret now lives in a standard app-private file written with `commit()`. App-private storage is already sandboxed by the OS; the extra encryption layer added fragility without adding real protection.
+
+**In-app updates verify cryptographic checksums before invoking the installer.**
+Downloading an arbitrary binary and handing it to the package manager without validation introduces tampering risks. MyGitHub extracts the author's published SHA-256 digest from the GitHub Release body, hashes the incoming byte stream on the fly, and automatically purges any payload that fails comparison before touching `FileProvider` or the system installer.
 
 **Aggregation uses `supervisorScope`.**
 The activity feed fans out across repositories and endpoints. `supervisorScope` isolates failures so one unreachable repo can't blank the entire feed.

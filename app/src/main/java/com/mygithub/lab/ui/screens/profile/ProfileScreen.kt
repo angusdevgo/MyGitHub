@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -45,6 +46,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -78,10 +80,12 @@ import kotlinx.coroutines.launch
 @Composable
 fun ProfileScreen(
     onRepoClick: (GitHubRepo) -> Unit,
-    onLogout: () -> Unit
+    onLogout: () -> Unit,
+    onShowUpdate: (com.mygithub.lab.data.update.UpdateInfo) -> Unit = {}
 ) {
     val context = LocalContext.current
     val repository = remember { GitHubRepository.get(context) }
+    val scope = rememberCoroutineScope()
     var user by remember { mutableStateOf<GitHubUser?>(null) }
     var showStars by remember { mutableStateOf(false) }
     var showSecurity by remember { mutableStateOf(false) }
@@ -375,9 +379,36 @@ fun ProfileScreen(
                     onClick = { }
                 )
             }
+            item(key = "menu_update") {
+                var checkingUpdate by remember { mutableStateOf(false) }
+                MenuRow(
+                    icon = Icons.Filled.SystemUpdate,
+                    iconColor = MaterialTheme.colorScheme.primary,
+                    title = "检查新版本",
+                    subtitle = if (checkingUpdate) "正在检查更新..." else "当前版本 v0.0.1",
+                    onClick = {
+                        if (checkingUpdate) return@MenuRow
+                        checkingUpdate = true
+                        scope.launch {
+                            try {
+                                val update = repository.checkAppUpdate()
+                                if (update != null) {
+                                    onShowUpdate(update)
+                                } else {
+                                    android.widget.Toast.makeText(context, "已是最新版本 v0.0.1", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            } catch (_: Exception) {
+                                android.widget.Toast.makeText(context, "检查更新失败，请稍后重试", android.widget.Toast.LENGTH_SHORT).show()
+                            } finally {
+                                checkingUpdate = false
+                            }
+                        }
+                    }
+                )
+            }
             item {
                 Text(
-                    "MyGitHub v0.1.0 · 开源",
+                    "MyGitHub v0.0.1 · 开源",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.outline,
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),

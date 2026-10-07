@@ -690,6 +690,48 @@ class GitHubRepository(context: Context) {
         Result.Error("加载失败: ${e.message}")
     }
 
+    /**
+     * 检查应用是否有新版本发布。
+     *
+     * 自动从 angusdevgo/MyGitHub 仓库拉取最新正式版 Release，
+     * 仅当云端版本高于当前客户端、且附带 APK 资产、且说明包含 SHA-256 时才构造 UpdateInfo。
+     */
+    suspend fun checkAppUpdate(
+        currentVersionName: String = com.mygithub.lab.BuildConfig.VERSION_NAME,
+        owner: String = "angusdevgo",
+        repo: String = "MyGitHub"
+    ): com.mygithub.lab.data.update.UpdateInfo? = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        val currentVersion = com.mygithub.lab.data.update.Version.parse(currentVersionName) ?: return@withContext null
+        val authHeader = if (token.isNotBlank()) "Bearer $token" else null
+        val release = try {
+            api.getLatestRelease(token = authHeader, owner = owner, repo = repo)
+        } catch (_: Exception) {
+            return@withContext null
+        }
+
+        val releaseVersion = com.mygithub.lab.data.update.Version.parse(release.tag_name)
+            ?: com.mygithub.lab.data.update.Version.parse(release.name)
+            ?: return@withContext null
+
+        if (releaseVersion <= currentVersion) return@withContext null
+
+        val apkAsset = release.assets.firstOrNull { it.name.endsWith(".apk", ignoreCase = true) }
+            ?: return@withContext null
+
+        val sha256 = com.mygithub.lab.data.update.ChecksumParser.parse(release.body)
+            ?: return@withContext null
+
+        com.mygithub.lab.data.update.UpdateInfo(
+            version = releaseVersion,
+            releaseName = release.name?.ifBlank { release.tag_name } ?: release.tag_name,
+            releaseNotes = release.body.orEmpty(),
+            releasePageUrl = release.html_url,
+            apkUrl = apkAsset.browser_download_url,
+            apkSizeBytes = apkAsset.size,
+            sha256 = sha256
+        )
+    }
+
     companion object {
         @Volatile private var instance: GitHubRepository? = null
         fun get(context: Context): GitHubRepository =

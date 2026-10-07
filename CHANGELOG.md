@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Dual-theme design system** — Nord-inspired deep-space dark theme with a Cobalt accent, plus a matching light theme, switchable at runtime.
 - **Floating capsule navigation** — overlay bottom bar with a GPU-driven spring-animated indicator that does not trigger recomposition.
 - **Custom pull-to-refresh indicator** — explicit refresh state with a continuously animated indicator.
+- **In-app self-updater with SHA-256 integrity verification** — automatically checks GitHub Releases on launch, parses SemVer tags, streams the APK to cache with live progress, computes and validates the SHA-256 digest against the release notes to prevent tampering, and invokes the system package installer via `FileProvider`.
 
 ### Authentication
 

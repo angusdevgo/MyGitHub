@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- 对应 context.cacheDir/updates 目录下的 APK 安装包 -->
+    <cache-path name="updates" path="updates/" />
+</paths>
