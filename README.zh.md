@@ -9,10 +9,10 @@
 <p><strong>一个完全跑在你手机上的 GitHub 客户端</strong></p>
 <p>Android · 零服务器 · 本地优先 · TOTP · Jetpack Compose</p>
 
-[![Release](https://img.shields.io/github/v/release/angusdevgo/MyGitHub?style=flat-square&color=3B5BDB)](https://github.com/angusdevgo/MyGitHub/releases)
-[![Downloads](https://img.shields.io/github/downloads/angusdevgo/MyGitHub/total?style=flat-square)](https://github.com/angusdevgo/MyGitHub/releases)
+[![Version](https://img.shields.io/badge/version-v0.0.1-3B5BDB?style=flat-square)](https://github.com/angusdevgo/MyGitHub/releases)
 [![Last Commit](https://img.shields.io/github/last-commit/angusdevgo/MyGitHub?style=flat-square)](https://github.com/angusdevgo/MyGitHub/commits)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square)](LICENSE)
+[![Stars](https://img.shields.io/github/stars/angusdevgo/MyGitHub?style=flat-square&color=EBCB8B)](https://github.com/angusdevgo/MyGitHub/stargazers)
 
 [![Platform](https://img.shields.io/badge/android-8.0%2B-3DDC84?style=flat-square&logo=android&logoColor=white)](https://developer.android.com)
 [![Kotlin](https://img.shields.io/badge/kotlin-2.0-7F52FF?style=flat-square&logo=kotlin&logoColor=white)](https://kotlinlang.org)
