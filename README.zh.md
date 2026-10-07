@@ -97,24 +97,6 @@ MyGitHub 的做法是：**根本不支持 Web Flow**。它只做 **Device Flow**
 
 ---
 
-## 截图
-
-<div align="center">
-
-> 📸 *截图整理中。应用已可用——前往 [Releases](https://github.com/angusdevgo/MyGitHub/releases) 直接体验。*
-
-</div>
-
-<!-- 有截图后替换上面这段为：
-
-| 推荐 | 排行榜 | 通知 | 个人 |
-|:-:|:-:|:-:|:-:|
-| <img src="docs/images/home.png" width="200"> | <img src="docs/images/rankings.png" width="200"> | <img src="docs/images/notifications.png" width="200"> | <img src="docs/images/profile.png" width="200"> |
-
--->
-
----
-
 ## 快速开始
 
 ### 环境要求
@@ -250,26 +232,8 @@ GitHub 的通知负载不包含 Issue 状态。应用不去解析标题里有没
 **聚合使用 `supervisorScope`。**
 动态流会跨仓库、跨接口扇出。`supervisorScope` 隔离失败，单个仓库不可达不会导致整个动态流空白。
 
----
-
-## 性能
-
-在小米 2206123SC（Android 13）上通过 `dumpsys gfxinfo` 实测：
-
-| 页面 | 总帧数 | 卡顿帧 | 99 分位 |
-|:---|---:|---:|---:|
-| 通知页 | 445 | **3（0.67%）** | 10 ms |
-| 个人页 | 577 | **2（0.35%）** | 7 ms |
-
-做到这点的手段：
-
-- 懒加载列表全量稳定 key——滚动时 Compose 复用组合结果
-- `remember(updatedAt) { relativeTimeFromIso(updatedAt) }`——ISO 时间戳只解析一次，而非每次重组
-- `derivedStateOf` 处理筛选列表——仅在输入变化时才重算
-- 1 Hz TOTP 倒计时局部化重组
-- Coil 全局缓存：50 MB 内存 + 100 MB 磁盘，`crossfade(false)` 配合显式 `memoryCacheKey` 消除解码尖刺
-- 显式 `LazyListState`，下拉刷新与 Tab 切换后确定性回到顶部
-- 显式 `PullToRefreshState`，刷新指示器永不卡滞
+**滚动顺畅，是因为严格节制了重组。**
+每个懒加载项都有稳定 key，Compose 复用组合结果而非重建行。时间戳走 `remember(updatedAt) { relativeTimeFromIso(updatedAt) }`，而不是每次重组都重新解析 ISO 字符串。筛选列表使用 `derivedStateOf`，只在其输入变化时重算。1 Hz 的 TOTP 倒计时被限制在叶子组件内，而不是让整页跟着跳动。Coil 全局缓存图片（50 MB 内存 + 100 MB 磁盘），配合 `crossfade(false)` 与显式 `memoryCacheKey`，消除滚动途中的解码尖刺。
 
 ---
 
@@ -292,7 +256,7 @@ MyGitHub/
 │       └── theme/                   源自 Nord 的配色方案
 │
 ├── relay/                           可选的 Cloudflare Worker（见下）
-└── docs/images/                     截图与素材
+└── docs/images/                     项目素材
 ```
 
 ### 可选的中继服务

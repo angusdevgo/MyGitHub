@@ -97,24 +97,6 @@ MyGitHub sidesteps this by not supporting Web Flow at all. It only does **Device
 
 ---
 
-## Screenshots
-
-<div align="center">
-
-> 📸 *Screenshots coming soon. The app is functional — see [Releases](https://github.com/angusdevgo/MyGitHub/releases) to try it.*
-
-</div>
-
-<!-- Replace the block above with a table like this once screenshots exist:
-
-| Discovery | Rankings | Notifications | Profile |
-|:-:|:-:|:-:|:-:|
-| <img src="docs/images/home.png" width="200"> | <img src="docs/images/rankings.png" width="200"> | <img src="docs/images/notifications.png" width="200"> | <img src="docs/images/profile.png" width="200"> |
-
--->
-
----
-
 ## Getting started
 
 ### Requirements
@@ -250,26 +232,8 @@ An earlier version used `EncryptedSharedPreferences`. On some OEM ROMs, a Keysto
 **Aggregation uses `supervisorScope`.**
 The activity feed fans out across repositories and endpoints. `supervisorScope` isolates failures so one unreachable repo can't blank the entire feed.
 
----
-
-## Performance
-
-Measured with `dumpsys gfxinfo` on a Xiaomi 2206123SC (Android 13):
-
-| Screen | Frames | Janky | 99th percentile |
-|:---|---:|---:|---:|
-| Notifications | 445 | **3 (0.67%)** | 10 ms |
-| Profile | 577 | **2 (0.35%)** | 7 ms |
-
-What got it there:
-
-- Stable keys on every lazy list item — Compose reuses composition during scroll
-- `remember(updatedAt) { relativeTimeFromIso(updatedAt) }` — ISO timestamps parsed once, not per recomposition
-- `derivedStateOf` for filtered lists — filtering only runs when inputs change
-- Localized recomposition for the 1 Hz TOTP countdown
-- Coil global cache: 50 MB memory, 100 MB disk, `crossfade(false)` with explicit `memoryCacheKey` to kill decode spikes
-- Explicit `LazyListState` so pull-to-refresh and tab switches land deterministically at the top
-- Explicit `PullToRefreshState` so the refresh spinner never stalls
+**Scrolling stays smooth because recomposition is rationed.**
+Every lazy list item has a stable key, so Compose reuses composition instead of rebuilding rows. Timestamps go through `remember(updatedAt) { relativeTimeFromIso(updatedAt) }` rather than re-parsing ISO strings on each pass. Filtered lists use `derivedStateOf`, so filtering runs only when its inputs change. The 1 Hz TOTP countdown is confined to a leaf composable instead of ticking the whole screen. Coil caches images globally (50 MB memory, 100 MB disk) with `crossfade(false)` and an explicit `memoryCacheKey` to eliminate decode spikes mid-scroll.
 
 ---
 
@@ -292,7 +256,7 @@ MyGitHub/
 │       └── theme/                   Nord-derived color schemes
 │
 ├── relay/                           optional Cloudflare Worker (see below)
-└── docs/images/                     screenshots and assets
+└── docs/images/                     project assets
 ```
 
 ### The optional relay
