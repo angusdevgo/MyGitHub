@@ -1,31 +1,38 @@
+<h1 align="center">MyGitHub</h1>
+
 <div align="center">
 
-<img src="docs/images/app_icon.png" width="100" alt="MyGitHub">
+**中文** | [English](README.md)
 
-# MyGitHub
+<img src="docs/images/theme.png" alt="MyGitHub" width="500" />
 
-**一个完全跑在你手机上的 GitHub 客户端。**
-
-没有服务器。没有订阅。没有追踪。只有你的令牌、GitHub 的 API，和一个原生 Android 应用。
+<p><strong>一个完全跑在你手机上的 GitHub 客户端</strong></p>
+<p>Android · 零服务器 · 本地优先 · TOTP · Jetpack Compose</p>
 
 [![Release](https://img.shields.io/github/v/release/angusdevgo/MyGitHub?style=flat-square&color=3B5BDB)](https://github.com/angusdevgo/MyGitHub/releases)
+[![Downloads](https://img.shields.io/github/downloads/angusdevgo/MyGitHub/total?style=flat-square)](https://github.com/angusdevgo/MyGitHub/releases)
+[![Last Commit](https://img.shields.io/github/last-commit/angusdevgo/MyGitHub?style=flat-square)](https://github.com/angusdevgo/MyGitHub/commits)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square)](LICENSE)
-[![Platform](https://img.shields.io/badge/android-8.0%2B-3DDC84?style=flat-square&logo=android&logoColor=white)](https://developer.android.com)
-[![Telegram](https://img.shields.io/badge/社区-LINUX%20DO-23272A?style=flat-square)](https://linux.do/)
 
-[English](README.md) · [中文](README.zh.md)
+[![Platform](https://img.shields.io/badge/android-8.0%2B-3DDC84?style=flat-square&logo=android&logoColor=white)](https://developer.android.com)
+[![Kotlin](https://img.shields.io/badge/kotlin-2.0-7F52FF?style=flat-square&logo=kotlin&logoColor=white)](https://kotlinlang.org)
+[![Compose](https://img.shields.io/badge/jetpack%20compose-material%203-4285F4?style=flat-square&logo=jetpackcompose&logoColor=white)](https://developer.android.com/jetpack/compose)
+[![社区](https://img.shields.io/badge/%E7%A4%BE%E5%8C%BA-LINUX%20DO-23272A?style=flat-square)](https://linux.do/)
 
 </div>
 
 ---
 
-## 这是什么
-
 MyGitHub 是一个原生 Android 的 GitHub 客户端，使用 Kotlin 与 Jetpack Compose 编写。
-
 它做的是你在手机上真正会打开 GitHub 去做的那些事——浏览仓库、看 Issue、查通知、追趋势——而且它做这些事时，**除了 GitHub 自己的服务器，不会和任何其他服务器通信**。
 
-最后这句话是重点，所以讲具体一点：
+整个项目约 7000 行 Kotlin，27 个文件。小到你可以用一个下午读完，确切知道它拿你的凭据做了什么。
+
+---
+
+## 这是什么
+
+最后那句话是重点，所以讲具体一点：
 
 - **没有后端。** 不是免费额度，不是 Serverless，不是反向代理。没有东西要部署，没有东西要付费，没有东西会挂掉。
 - **你的令牌留在设备上。** AES-256-GCM 加密，密钥由 Android Keystore 保管。

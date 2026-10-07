@@ -1,29 +1,36 @@
+<h1 align="center">MyGitHub</h1>
+
 <div align="center">
 
-<img src="docs/images/app_icon.png" width="100" alt="MyGitHub">
+[English](README.md) | [中文](README.zh.md)
 
-# MyGitHub
+<img src="docs/images/theme.png" alt="MyGitHub" width="500" />
 
-**A GitHub client that runs entirely on your phone.**
-
-No server. No subscription. No tracking. Just your token, GitHub's API, and a native Android app.
+<p><strong>A GitHub client that runs entirely on your phone</strong></p>
+<p>Android · Zero-Server · Local Vault · TOTP · Jetpack Compose</p>
 
 [![Release](https://img.shields.io/github/v/release/angusdevgo/MyGitHub?style=flat-square&color=3B5BDB)](https://github.com/angusdevgo/MyGitHub/releases)
+[![Downloads](https://img.shields.io/github/downloads/angusdevgo/MyGitHub/total?style=flat-square)](https://github.com/angusdevgo/MyGitHub/releases)
+[![Last Commit](https://img.shields.io/github/last-commit/angusdevgo/MyGitHub?style=flat-square)](https://github.com/angusdevgo/MyGitHub/commits)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square)](LICENSE)
-[![Platform](https://img.shields.io/badge/android-8.0%2B-3DDC84?style=flat-square&logo=android&logoColor=white)](https://developer.android.com)
-[![Telegram](https://img.shields.io/badge/community-LINUX%20DO-23272A?style=flat-square)](https://linux.do/)
 
-[English](README.md) · [中文](README.zh.md)
+[![Platform](https://img.shields.io/badge/android-8.0%2B-3DDC84?style=flat-square&logo=android&logoColor=white)](https://developer.android.com)
+[![Kotlin](https://img.shields.io/badge/kotlin-2.0-7F52FF?style=flat-square&logo=kotlin&logoColor=white)](https://kotlinlang.org)
+[![Compose](https://img.shields.io/badge/jetpack%20compose-material%203-4285F4?style=flat-square&logo=jetpackcompose&logoColor=white)](https://developer.android.com/jetpack/compose)
+[![Community](https://img.shields.io/badge/community-LINUX%20DO-23272A?style=flat-square)](https://linux.do/)
 
 </div>
 
 ---
 
-## What this is
-
 MyGitHub is a native Android client for GitHub, written in Kotlin with Jetpack Compose.
-
 It does the things you actually open GitHub for on a phone — browse your repos, read issues, check notifications, spot trends — and it does them **without ever talking to a server that isn't GitHub's**.
+
+It's about 7,000 lines of Kotlin across 27 files. Small enough that you can read all of it in an afternoon and know exactly what it does with your credentials.
+
+---
+
+## What this is
 
 That last part is the whole point, so let's be concrete:
 
