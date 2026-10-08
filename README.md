@@ -24,9 +24,10 @@
 ---
 
 MyGitHub is a native Android client for GitHub, written in Kotlin with Jetpack Compose.
-It does the things you actually open GitHub for on a phone — browse your repos, read issues, check notifications, spot trends — and it does them **without ever talking to a server that isn't GitHub's**.
 
-It's about 7,000 lines of Kotlin across 27 files. Small enough that you can read all of it in an afternoon and know exactly what it does with your credentials.
+It does the things you actually open GitHub for on a phone — browse your repos, read and reply to issues, fork projects, watch what's happening on your own repositories — and it does them **without ever talking to a server that isn't GitHub's**.
+
+About **10,000 lines of Kotlin across 37 files**. Small enough to read in an afternoon, and to know exactly what it does with your credentials.
 
 ---
 
@@ -36,10 +37,8 @@ That last part is the whole point, so let's be concrete:
 
 - **There is no backend.** Not a free tier, not a serverless function, not a proxy. Nothing to deploy, nothing to pay for, nothing that can go down.
 - **Your token stays on your device.** Encrypted with AES-256-GCM, key held in the Android Keystore.
-- **Every request goes straight to `api.github.com` over TLS.** You can verify this by reading the source, or by watching your own network.
+- **Every request goes straight to `api.github.com` over TLS.** Verify it by reading the source, or by watching your own network.
 - **It comes with a 2FA authenticator.** RFC 6238 TOTP, computed offline. You can delete Google Authenticator.
-
-It's about 7,000 lines of Kotlin across 27 files. Small enough that you can read all of it in an afternoon and know exactly what it does with your credentials.
 
 ---
 
@@ -53,7 +52,7 @@ MyGitHub sidesteps this by not supporting Web Flow at all. It only does **Device
 
 **You're tired of stuttering lists.** Cache-first architecture: every list renders from local storage first, then refreshes silently behind you. Measured jank on a Xiaomi 2206123SC: **0.35%** on the profile screen, **0.67%** on notifications. Zero missed vsyncs in the notification feed.
 
-**You want to read the code before you trust it.** 27 files. No obfuscated SDKs, no analytics, no network calls you didn't ask for. Search for `api.github.com` — that's every outbound request in the app.
+**You want to read the code before you trust it.** 37 files. No obfuscated SDKs, no analytics, no network calls you didn't ask for. Search for `api.github.com` — that's every outbound request in the app.
 
 ---
 
@@ -69,14 +68,15 @@ MyGitHub sidesteps this by not supporting Web Flow at all. It only does **Device
 - Your repositories with stars, forks, language, last activity
 - Search across repositories and issues
 
-</td><td width="50%" valign="top">
+</td><td valign="top">
 
 **Interact**
 
 - Read full issue threads with comments
 - Post comments
 - Close and reopen issues
-- Star and unstar repositories
+- **Star / unstar with instant optimistic UI** — no page reload, no waiting
+- **Fork in-app** — pick your own repo name, optionally copy only the default branch
 - Read READMEs with proper dark/light theming
 
 </td></tr>
@@ -84,11 +84,9 @@ MyGitHub sidesteps this by not supporting Web Flow at all. It only does **Device
 
 **Stay informed**
 
-- Full notification inbox with reason filters
-- **Accurate issue state** — queried from the real API, not guessed from notification text
-- Aggregated activity: who starred, forked, or opened issues on your repos
-- Mark as read, synced to GitHub
-- 30-day retention
+- **Issues tab** — every Issue and PR across your own repositories, filterable by `All` / `Open` / `Closed`
+- **Activity tab** — real Star / Fork / Issue / PR events on your repos, with an aggregate overview (total stars, forks, open issues) and "since you last looked: +N stars" delta
+- No notification-inbox guesswork: state comes straight from the real API
 
 </td><td valign="top">
 
@@ -98,8 +96,8 @@ MyGitHub sidesteps this by not supporting Web Flow at all. It only does **Device
 - Import by QR scan (CameraX + ML Kit) or manual Base32 / `otpauth://` paste
 - Live countdown, one-tap copy
 - Survives logout — your 2FA enrollment is never cleared
-- **In-app self-updater with SHA-256 integrity verification** — checks GitHub Releases on launch, verifies checksum before install
-- **Network acceleration & proxy support** — Direct, public GitHub CDN mirrors, and custom HTTP/SOCKS5 proxies with latency probe
+- **In-app self-updater with SHA-256 integrity verification** — checks GitHub Releases on launch, verifies the checksum before install
+- **Network acceleration & proxy engine** — Direct, public GitHub CDN mirrors, and custom HTTP/SOCKS5 proxies, with a live latency probe and automatic fallback to direct when a proxy tunnel fails
 
 </td></tr>
 </table>
@@ -155,6 +153,14 @@ keytool -genkeypair -v -keystore keystore/release.jks \
 
 > Skip this entirely and Gradle produces an *unsigned* release APK instead of failing. Anyone can compile this project on a clean machine.
 
+The version comes from the `VERSION` file at the repo root — `versionName` and `versionCode` are both derived from it at build time.
+
+### Run the tests
+
+```bash
+./gradlew testReleaseUnitTest
+```
+
 ---
 
 ## Signing in
@@ -168,28 +174,47 @@ This is the same mechanism `gh auth login` and smart TVs use.
 ```
 1.  Tap "Sign in with GitHub"
 2.  The app shows you a code:  9D6F-56E7
-3.  Open github.com/login/device in any browser
+3.  The code is copied to your clipboard and the browser opens
 4.  Enter the code, tap Authorize
 5.  The app notices and logs you in
 ```
 
 You type your password on GitHub's own website. The app never sees it. The only credential involved is a **public client ID** — decompiling the APK gets an attacker nothing.
 
+The code card shows a **live countdown** and a **Cancel** button, so you're never stuck waiting: abort at any point and pick a different login method. If the browser can't be launched automatically on your ROM, the card also gives you copy buttons and manual steps.
+
 ### Personal Access Token — fallback
 
 Some networks block `github.com` but allow `api.github.com`. Device Flow can't work there, so PAT login exists as a fallback.
 
-The app walks you through it and opens GitHub's token page with **`repo`, `user`, and `read:org` already selected**.
+The app walks you through it and offers a link with **`repo`, `user`, and `read:org` already selected**.
 
 ### Enabling 2FA
 
 Once you've signed in, MyGitHub can also be your authenticator:
 
-1. Go to **Profile → Security Center**
+1. Go to **Profile → Two-Factor Auth**
 2. Scan the QR code GitHub shows you, or paste the Base32 setup key
 3. The 6-digit code appears with a live countdown ring
 
 The code is computed locally with HMAC-SHA1 per RFC 6238. Your secret is stored in app-private storage and **is not touched when you log out** — logging out only clears the session token.
+
+---
+
+## App structure
+
+Five bottom tabs, plus full-screen secondary pages.
+
+| Tab | What's in it |
+|---|---|
+| **Home** | Personalized recommendations, category chips, search entry |
+| **Rankings** | Daily / weekly / monthly trending with language filters |
+| **Info** | `Issues` (all your repos, All/Open/Closed) and `Activity` (star/fork/issue events) |
+| **Repos** | Your repositories with public / private / fork filters |
+| **Profile** | Identity card, stars, recent views, two-factor auth, app settings, about |
+
+**Profile → Settings** holds appearance theme, account details, and the network/proxy engine.
+**Profile → About** holds the app icon, version, update check, open-source license, source and issue links.
 
 ---
 
@@ -198,23 +223,24 @@ The code is computed locally with HMAC-SHA1 per RFC 6238. Your secret is stored 
 ```
 ┌─────────────────────────────────────────────────────┐
 │  Compose UI                                         │
-│  Home · Rankings · Notifications · Repos · Profile  │
-│  RepoDetail · IssueDetail · Security · Login        │
+│  Home · Rankings · Info · Repos · Profile           │
+│  RepoDetail · IssueDetail · Settings · About · …    │
 └────────────────────────┬────────────────────────────┘
                          │  Flow<Result<T>>
 ┌────────────────────────▼────────────────────────────┐
 │  GitHubRepository                                   │
 │  · Cache-first flows (Room, then network)           │
 │  · Parallel loaders (supervisorScope + async)       │
-│  · In-memory caches (username, issue state)         │
+│  · Bounded fan-out (Semaphore) over owned repos     │
 └───────┬──────────────────────────────┬──────────────┘
         │                              │
 ┌───────▼──────────┐      ┌────────────▼──────────────┐
 │  Retrofit/OkHttp │      │  Room + Keystore          │
-│  → api.github.com│      │  repo_cache · notifications│
-│    over TLS      │      │  star_tags · recent_views  │
-└──────────────────┘      │  EncryptedSharedPreferences│
-                          └───────────────────────────┘
+│  → api.github.com│      │  repo_cache · star_tags   │
+│    over TLS      │      │  recent_views             │
+│  · proxy engine  │      │  EncryptedSharedPreferences│
+│  · auto fallback │      └───────────────────────────┘
+└──────────────────┘
         ┌──────────────────────────────────┐
         │  TOTP (on-device, offline)       │
         │  RFC 6238 · Base32 · ML Kit scan │
@@ -226,26 +252,35 @@ The code is computed locally with HMAC-SHA1 per RFC 6238. Your secret is stored 
 **Cache-first flows instead of suspend functions.**
 Every list emits twice: once from Room (`fromCache = true`), once from the network. You see content in under 100 ms. The refresh lands silently and only re-emits if the set of IDs actually changed — so lists never jump under your thumb.
 
+**Star toggling is optimistic, not synchronous.**
+The obvious implementation is: tap → await the network → refetch the README → rebuild the whole page → reload the WebView. That's two round trips and a full re-render for a one-bit change, and it feels exactly as slow as it sounds. Instead, the tap immediately runs injected JavaScript to flip the button's highlight, label and counter, then commits the request in the background and rolls back (with a toast) only if it fails.
+
+**Issues come from the API, not the inbox.**
+GitHub's `/notifications` endpoint returns *your subscription inbox*, not "all issues in your repos" — an issue you opened yourself doesn't generate a notification. So the Info tab queries `/repos/{owner}/{repo}/issues` across your own repositories with bounded concurrency, and merges PRs (which GitHub reports through the same endpoint) using the `pull_request` marker.
+
+**Activity uses the repo event stream, not the stargazer list.**
+`/repos/{o}/{r}/stargazers` has no sort parameter and returns oldest-first, so "who starred me recently" is effectively unanswerable from page 1. The repo events feed gives real actor-level Star/Fork/Issue/PR events in reverse-chronological order, and an aggregate pass over your repo objects supplies exact totals plus a "since last look" delta.
+
+**The proxy can't brick the app.**
+On a phone that already runs a system-wide VPN, stacking an app-level proxy on top is redundant — and if that proxy returns something like HTTP 402 on `CONNECT`, every request dies. A fallback interceptor detects proxy-tunnel failures and retries once over a dedicated direct client.
+
+**The `Accept` header is only ever a default.**
+Setting `Accept` unconditionally in an interceptor silently overwrote the call-site values that `readme` and `contents` rely on, so those endpoints returned JSON metadata instead of rendered HTML and every repository page broke. The interceptor now only fills in a value when the caller didn't specify one.
+
 **`graphicsLayer { translationX }` for the bottom bar indicator.**
 Animating an offset with `animateDpAsState` triggers layout every frame. Driving `translationX` inside `graphicsLayer` keeps the whole animation on the GPU, with zero recomposition.
 
 **The TOTP clock lives in a leaf composable.**
 A 1 Hz timer in the screen root recomposes the entire page 60 times a minute. Putting it inside `TotpQuickCard` means only that card recomposes.
 
-**Issue state is queried, not guessed.**
-GitHub's notification payload doesn't include issue state. Instead of parsing titles for the word "closed", the app queries the real issue endpoint for visible notifications and merges results through an in-memory cache. Your notification list shows `Open` or `Closed` correctly — including for issues you closed five minutes ago.
-
 **The 2FA secret uses plain app-private storage.**
 An earlier version used `EncryptedSharedPreferences`. On some OEM ROMs, a Keystore reset causes it to silently return `null` — which means the user loses their 2FA enrollment and gets locked out. The secret now lives in a standard app-private file written with `commit()`. App-private storage is already sandboxed by the OS; the extra encryption layer added fragility without adding real protection.
 
 **In-app updates verify cryptographic checksums before invoking the installer.**
-Downloading an arbitrary binary and handing it to the package manager without validation introduces tampering risks. MyGitHub extracts the author's published SHA-256 digest from the GitHub Release body, hashes the incoming byte stream on the fly, and automatically purges any payload that fails comparison before touching `FileProvider` or the system installer.
-
-**Aggregation uses `supervisorScope`.**
-The activity feed fans out across repositories and endpoints. `supervisorScope` isolates failures so one unreachable repo can't blank the entire feed.
+Downloading an arbitrary binary and handing it to the package manager without validation invites tampering. MyGitHub extracts the author's published SHA-256 digest from the GitHub Release body, hashes the incoming byte stream on the fly, and purges any payload that fails comparison before touching `FileProvider` or the system installer.
 
 **Scrolling stays smooth because recomposition is rationed.**
-Every lazy list item has a stable key, so Compose reuses composition instead of rebuilding rows. Timestamps go through `remember(updatedAt) { relativeTimeFromIso(updatedAt) }` rather than re-parsing ISO strings on each pass. Filtered lists use `derivedStateOf`, so filtering runs only when its inputs change. The 1 Hz TOTP countdown is confined to a leaf composable instead of ticking the whole screen. Coil caches images globally (50 MB memory, 100 MB disk) with `crossfade(false)` and an explicit `memoryCacheKey` to eliminate decode spikes mid-scroll.
+Every lazy list item has a stable key, so Compose reuses composition instead of rebuilding rows. Timestamps go through `remember(updatedAt) { relativeTimeFromIso(updatedAt) }` rather than re-parsing ISO strings on each pass. Filtered lists use `derivedStateOf`. The 1 Hz TOTP countdown is confined to a leaf composable. Coil caches images globally (50 MB memory, 100 MB disk) with an explicit `memoryCacheKey` to eliminate decode spikes mid-scroll.
 
 ---
 
@@ -253,13 +288,19 @@ Every lazy list item has a stable key, so Compose reuses composition instead of 
 
 ```
 MyGitHub/
+├── VERSION                          single source of truth for the version
+├── scripts/release.py               one-command version bump + release pipeline
 ├── app/src/main/java/com/mygithub/lab/
 │   ├── MainActivity.kt              entry point
 │   ├── data/
 │   │   ├── api/GitHubApi.kt         Retrofit interface + DTOs
-│   │   ├── auth/                    Device Flow, encrypted token vault
+│   │   ├── auth/                    Device Flow, token vault
 │   │   ├── local/AppDatabase.kt     Room entities and DAOs
-│   │   └── repo/GitHubRepository.kt cache-first flows, parallel loaders
+│   │   ├── model/                   UI-facing models
+│   │   ├── network/ProxyManager.kt  proxy modes, mirrors, latency probe
+│   │   ├── repo/GitHubRepository.kt cache-first flows, parallel loaders
+│   │   ├── update/                  version comparison, APK download + hashing
+│   │   └── util/                    pure helpers (all unit-tested)
 │   ├── security/totp/               RFC 6238 engine, persistent secret store
 │   └── ui/
 │       ├── MyGitHubApp.kt           NavHost + overlay scaffold
@@ -267,22 +308,9 @@ MyGitHub/
 │       ├── screens/                 one package per screen
 │       └── theme/                   Nord-derived color schemes
 │
-├── relay/                           optional Cloudflare Worker (see below)
+├── app/src/test/                    JVM unit tests
 └── docs/images/                     project assets
 ```
-
-### The optional relay
-
-`relay/` contains a Cloudflare Worker that implements **blind** cross-device 2FA approval — you tap a two-digit number on an already-trusted device to approve a login elsewhere.
-
-**Nothing in the app requires it.** It's an experiment in doing 2FA approval without a trusted server:
-
-- The Worker forwards AES-256-GCM envelopes it cannot decrypt
-- Approval actions are signed with an Ed25519 key in the device's secure element
-- The challenge is verified locally on the requesting device
-- The Worker stores no tokens, keys, or plaintext
-
-Deploy it in about two minutes if you're curious — see [`relay/README.md`](relay/README.md).
 
 ---
 
@@ -292,10 +320,12 @@ Deploy it in about two minutes if you're curious — see [`relay/README.md`](rel
 - [x] Issue detail, comments, close / reopen
 - [x] On-device personalized recommendations
 - [x] Trending rankings
-- [x] Notifications with accurate issue state
-- [x] Aggregated received-activity feed
+- [x] Issues and activity tabs driven by real API state
 - [x] Built-in 2FA authenticator with QR import
 - [x] Floating capsule navigation
+- [x] Instant star toggle and in-app forking
+- [x] Network proxy engine with mirrors and latency probe
+- [x] In-app self-update with SHA-256 verification
 - [ ] Code browsing with syntax highlighting
 - [ ] Pull request review
 - [ ] Multi-account support
@@ -312,10 +342,13 @@ No. There is no backend. Your token authenticates every request directly against
 It's encrypted with AES-256-GCM under a key held in the Android Keystore, stored in `EncryptedSharedPreferences`, and never transmitted anywhere except `api.github.com`.
 
 **Does it work without a proxy?**
-Device Flow works anywhere `github.com` is reachable. If your network blocks `github.com`, use PAT login — it only needs `api.github.com`. The app tells you which path to take when a connection fails.
+Device Flow works anywhere `github.com` is reachable. If your network blocks it, use PAT login — that only needs `api.github.com`. The app tells you which path to take when a connection fails, and the proxy engine can also route through public CDN mirrors or your own HTTP/SOCKS5 proxy.
 
 **Will I lose my 2FA codes if I log out?**
-No. The authenticator secret is stored separately from your session and is only cleared if you explicitly unbind it in Security Center.
+No. The authenticator secret is stored separately from your session and is only cleared if you explicitly unbind it in Two-Factor Auth.
+
+**Can I cancel a login that's waiting for authorization?**
+Yes. The Device Flow card has a Cancel button and a countdown; the polling job is torn down immediately and when you leave the screen.
 
 **Why not OAuth Web Flow?**
 It requires a `client_secret` at token exchange, which means either shipping that secret in the APK (unsafe) or running a backend (costs money). Device Flow and PAT login avoid both problems.
@@ -332,7 +365,8 @@ Issues and pull requests are welcome.
 ```bash
 git checkout -b feature/your-feature
 # make your changes
-./gradlew assembleRelease    # should build cleanly
+./gradlew testReleaseUnitTest  # unit tests must pass
+./gradlew assembleRelease      # should build cleanly
 git commit -m "feat: your feature"
 git push origin feature/your-feature
 ```
@@ -340,6 +374,7 @@ git push origin feature/your-feature
 Before opening a PR, please check:
 
 - `./gradlew assembleRelease` completes without new warnings
+- `./gradlew testReleaseUnitTest` passes
 - No credentials, tokens, keystores, or personal identifiers in the diff
 - New UI works in both dark and light themes
 
