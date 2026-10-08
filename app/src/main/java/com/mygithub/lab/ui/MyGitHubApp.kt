@@ -62,7 +62,7 @@ import com.mygithub.lab.ui.screens.home.HomeScreen
 import com.mygithub.lab.ui.screens.profile.ProfileScreen
 import com.mygithub.lab.ui.screens.rankings.RankingsScreen
 import com.mygithub.lab.ui.screens.search.SearchScreen
-import com.mygithub.lab.ui.screens.notifications.NotificationsScreen
+import com.mygithub.lab.ui.screens.info.InfoScreen
 import com.mygithub.lab.ui.screens.repos.RepoDetailScreen
 import com.mygithub.lab.ui.screens.repos.ReposScreen
 import com.mygithub.lab.ui.screens.issues.IssueDetailScreen
@@ -325,15 +325,12 @@ private fun MainScaffold(
         when (selected) {
             0 -> HomeScreen(onRepoClick = onRepoClick, onSearchClick = { navController.navigate(Routes.SEARCH) })
             1 -> RankingsScreen(onRepoClick = onRepoClick)
-            2 -> NotificationsScreen(
-                onNavigateToRepo = { ghRepo ->
-                    onRepoClick(ghRepo)
-                },
+            2 -> InfoScreen(
                 onNavigateToIssue = { _, issue ->
                     onIssueClick(issue)
                 }
             )
-            3 -> ReposScreen(onRepoClick = onRepoClick, onIssueClick = onIssueClick)
+            3 -> ReposScreen(onRepoClick = onRepoClick)
             4 -> ProfileScreen(
                 onRepoClick = onRepoClick,
                 onLogout = onLogout,

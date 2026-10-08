@@ -1,4 +1,4 @@
-package com.mygithub.lab.ui.screens.notifications
+package com.mygithub.lab.ui.screens.info
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -18,7 +18,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
@@ -28,11 +27,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,93 +43,68 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import coil3.request.crossfade
 import com.mygithub.lab.data.api.GitHubEvent
-import com.mygithub.lab.data.api.GitHubNotification
-import com.mygithub.lab.data.model.IssueRef
+import com.mygithub.lab.data.model.OwnedIssueItem
 import com.mygithub.lab.data.model.OwnedRepoSummary
 import com.mygithub.lab.data.repo.GitHubRepository
 import com.mygithub.lab.ui.components.KomiPullRefreshIndicator
 import com.mygithub.lab.ui.components.KomiSurface
 import com.mygithub.lab.ui.components.relativeTimeFromIso
-import kotlinx.coroutines.launch
 
-private enum class NotifFilter(val label: String) {
-    ALL("全部"), UNREAD("未读"), MENTION("提及"), ASSIGN("指派")
+/** 「议题」分段的状态筛选：All 置前 */
+private enum class IssueStateFilter(val label: String, val apiValue: String) {
+    ALL("All", "all"),
+    OPEN("Open", "open"),
+    CLOSED("Closed", "closed")
 }
 
-/** 从通知的 subject.url 解析出 IssueRef（同时支持 /issues/N 与 /pulls/N） */
-internal fun parseIssueRef(url: String): IssueRef? {
-    if (url.isBlank()) return null
-    val prefix = "https://api.github.com/repos/"
-    if (!url.startsWith(prefix)) return null
-    val parts = url.removePrefix(prefix).split("/")
-    if (parts.size < 4) return null
-    val number = parts[3].toIntOrNull() ?: return null
-    val kind = parts[2]
-    if (kind != "issues" && kind != "pulls") return null
-    return IssueRef(
-        url = url,
-        owner = parts[0],
-        repo = parts[1],
-        number = number,
-        isPr = kind == "pulls"
-    )
-}
+/** 信息 Tab 的分段：议题优先 */
+private const val TAB_ISSUES = 0
+private const val TAB_ACTIVITY = 1
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NotificationsScreen(
-    onNavigateToRepo: (com.mygithub.lab.data.api.GitHubRepo) -> Unit,
+fun InfoScreen(
     onNavigateToIssue: (com.mygithub.lab.data.api.GitHubRepo, com.mygithub.lab.data.api.GitHubIssue) -> Unit
 ) {
     val context = LocalContext.current
     val repo = remember { GitHubRepository.get(context) }
-    val scope = rememberCoroutineScope()
 
-    var notifications by remember { mutableStateOf<List<GitHubNotification>>(emptyList()) }
+    // ===== 议题 =====
+    var ownedIssues by remember { mutableStateOf<List<OwnedIssueItem>>(emptyList()) }
+    var issuesLoaded by remember { mutableStateOf(false) }
+    var issueStateFilter by remember { mutableStateOf(IssueStateFilter.ALL) }
+
+    // ===== 动态 =====
     var events by remember { mutableStateOf<List<GitHubEvent>>(emptyList()) }
     var summary by remember { mutableStateOf<OwnedRepoSummary?>(null) }
     var eventsLoaded by remember { mutableStateOf(false) }
+
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    var filter by remember { mutableStateOf(NotifFilter.ALL) }
-    var selectedTab by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(0) } // 0=通知 1=动态
+    var selectedTab by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(TAB_ISSUES) }
     var refreshKey by remember { mutableStateOf(0) }
     var isRefreshing by remember { mutableStateOf(false) }
-    var issueStateMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     val pullState = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
 
-    // ===== 批量解析 Issue/PR 实时状态（GraphQL，替代逐条 N+1 请求） =====
-    val notificationUrls = remember(notifications) { notifications.map { it.subject.url } }
-    LaunchedEffect(notificationUrls, refreshKey) {
-        val refs = notifications.mapNotNull { parseIssueRef(it.subject.url) }
-        if (refs.isEmpty()) return@LaunchedEffect
-        // 先填缓存中仍然有效的状态，保证界面不闪烁
-        val cached = refs.mapNotNull { r ->
-            repo.getCachedIssueState(r.url)?.let { r.url to it }
-        }.toMap()
-        if (cached.isNotEmpty()) issueStateMap = issueStateMap + cached
-
-        val resolved = repo.resolveIssueStates(refs)
-        if (resolved.isNotEmpty()) issueStateMap = issueStateMap + resolved
-    }
-
-    // ===== 拉取通知 / 动态 =====
-    LaunchedEffect(refreshKey, selectedTab) {
+    // ===== 数据拉取 =====
+    LaunchedEffect(refreshKey, selectedTab, issueStateFilter) {
         if (refreshKey == 0) loading = true
         error = null
         try {
-            if (selectedTab == 0) {
-                repo.getNotifications(all = true, maxPages = 2).collect { r ->
+            if (selectedTab == TAB_ISSUES) {
+                repo.getAllOwnedIssues(state = issueStateFilter.apiValue).collect { r ->
                     when (r) {
                         is GitHubRepository.Result.Success -> {
-                            notifications = r.data
+                            ownedIssues = r.data
+                            issuesLoaded = true
                             loading = false
                             isRefreshing = false
                             if (refreshKey > 0) listState.scrollToItem(0)
                         }
                         is GitHubRepository.Result.Error -> {
                             error = r.message
+                            issuesLoaded = true
                             loading = false
                             isRefreshing = false
                         }
@@ -156,7 +128,7 @@ fun NotificationsScreen(
                         }
                     }
                 }
-                // 总量摘要（数值准确，不依赖事件流）
+                // 总量摘要（数值来自仓库对象，永远准确）
                 when (val s = repo.getOwnedRepoSummary()) {
                     is GitHubRepository.Result.Success -> summary = s.data
                     is GitHubRepository.Result.Error -> {}
@@ -172,17 +144,6 @@ fun NotificationsScreen(
         }
     }
 
-    val filtered = remember(notifications, filter) {
-        derivedStateOf {
-            when (filter) {
-                NotifFilter.ALL -> notifications
-                NotifFilter.UNREAD -> notifications.filter { it.unread }
-                NotifFilter.MENTION -> notifications.filter { it.reason == "mention" }
-                NotifFilter.ASSIGN -> notifications.filter { it.reason == "assign" }
-            }
-        }
-    }.value
-
     Scaffold(
         topBar = {
             androidx.compose.material3.CenterAlignedTopAppBar(
@@ -197,7 +158,7 @@ fun NotificationsScreen(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 6.dp)
             ) {
-                val tabLabels = listOf("通知", "动态")
+                val tabLabels = listOf("议题", "动态")
                 tabLabels.forEachIndexed { index, label ->
                     SegmentedButton(
                         selected = selectedTab == index,
@@ -209,42 +170,66 @@ fun NotificationsScreen(
                 }
             }
 
-            if (selectedTab == 0) {
+            if (selectedTab == TAB_ISSUES) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 2.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    NotifFilter.entries.forEach { f ->
+                    IssueStateFilter.entries.forEach { f ->
                         FilterChip(
-                            selected = filter == f,
-                            onClick = { filter = f },
+                            selected = issueStateFilter == f,
+                            onClick = { issueStateFilter = f },
                             label = { Text(f.label) }
                         )
                     }
                 }
             }
 
+            val currentTabEmpty = when (selectedTab) {
+                TAB_ISSUES -> ownedIssues.isEmpty()
+                else -> events.isEmpty()
+            }
+            val currentTabLoaded = when (selectedTab) {
+                TAB_ISSUES -> issuesLoaded
+                else -> eventsLoaded
+            }
+
             when {
-                loading && !eventsLoaded && notifications.isEmpty() -> Row(
+                loading && !currentTabLoaded && currentTabEmpty -> Row(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp),
                     horizontalArrangement = Arrangement.Center
                 ) { CircularProgressIndicator() }
 
-                error != null && notifications.isEmpty() && events.isEmpty() -> Box(
+                error != null && currentTabEmpty -> Box(
                     Modifier.fillMaxSize(), contentAlignment = Alignment.Center
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(error!!, color = MaterialTheme.colorScheme.error)
+                    Text(error!!, color = MaterialTheme.colorScheme.error)
+                }
+
+                selectedTab == TAB_ISSUES && issuesLoaded && ownedIssues.isEmpty() -> Box(
+                    Modifier.fillMaxSize(), contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(horizontal = 32.dp)
+                    ) {
+                        Text(
+                            "自有仓库暂无该状态的议题",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            "当前筛选：${issueStateFilter.label}。切换上方芯片可查看其他状态。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
                     }
                 }
 
-                selectedTab == 0 && filtered.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("暂无通知", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-
-                selectedTab == 1 && eventsLoaded && events.isEmpty() -> Box(
+                selectedTab == TAB_ACTIVITY && eventsLoaded && events.isEmpty() -> Box(
                     Modifier.fillMaxSize(), contentAlignment = Alignment.Center
                 ) {
                     Column(
@@ -266,8 +251,6 @@ fun NotificationsScreen(
                     isRefreshing = isRefreshing,
                     onRefresh = {
                         isRefreshing = true
-                        repo.invalidateIssueStates()
-                        issueStateMap = emptyMap()
                         refreshKey++
                     },
                     state = pullState,
@@ -281,37 +264,25 @@ fun NotificationsScreen(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(top = 4.dp, bottom = 96.dp)
                     ) {
-                        if (selectedTab == 0) {
-                            items(filtered, key = { it.id }) { n ->
-                                NotificationCard(n, realState = issueStateMap[n.subject.url]) {
-                                    // 1. 乐观消除未读蓝点 + 持久化覆盖表并通知云端
-                                    if (n.unread) {
-                                        notifications = notifications.map {
-                                            if (it.id == n.id) it.copy(unread = false) else it
-                                        }
-                                        scope.launch { repo.markNotificationAsRead(n) }
-                                    }
-                                    // 2. 软件内 0ms 秒级推入详情页
-                                    when (n.subject.type) {
-                                        "Issue", "PullRequest" -> {
-                                            val ref = parseIssueRef(n.subject.url)
-                                            if (ref != null) {
-                                                val fastIssue = com.mygithub.lab.data.api.GitHubIssue(
-                                                    number = ref.number,
-                                                    title = n.subject.title,
-                                                    // 仅使用真实解析出的状态；未知则默认 open 但界面不显示状态胶囊
-                                                    state = issueStateMap[n.subject.url] ?: "open",
-                                                    repository_url = "https://api.github.com/repos/${ref.owner}/${ref.repo}",
-                                                    created_at = n.updated_at
-                                                )
-                                                val fastRepo = com.mygithub.lab.data.api.GitHubRepo(
-                                                    name = ref.repo,
-                                                    full_name = "${ref.owner}/${ref.repo}"
-                                                )
-                                                onNavigateToIssue(fastRepo, fastIssue)
-                                            }
-                                        }
-                                        else -> {}
+                        if (selectedTab == TAB_ISSUES) {
+                            items(ownedIssues, key = { it.cacheKey }) { item ->
+                                OwnedIssueCard(item) {
+                                    val parts = item.repoFullName.split("/")
+                                    if (parts.size == 2) {
+                                        val fastRepo = com.mygithub.lab.data.api.GitHubRepo(
+                                            name = parts[1],
+                                            full_name = item.repoFullName
+                                        )
+                                        val fastIssue = com.mygithub.lab.data.api.GitHubIssue(
+                                            number = item.number,
+                                            title = item.title,
+                                            state = item.state,
+                                            comments = item.comments,
+                                            updated_at = item.updatedAt,
+                                            html_url = item.htmlUrl,
+                                            repository_url = "https://api.github.com/repos/${item.repoFullName}"
+                                        )
+                                        onNavigateToIssue(fastRepo, fastIssue)
                                     }
                                 }
                             }
@@ -324,6 +295,99 @@ fun NotificationsScreen(
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+/** 状态胶囊（Open 绿 / Closed 灰 / Merged 紫） */
+@Composable
+private fun StatePill(text: String, color: Color) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(color.copy(alpha = 0.15f))
+            .padding(horizontal = 5.dp, vertical = 1.dp)
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelSmall,
+            color = color,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+/** 「议题」卡片：自有仓库的 Issue / PR */
+@Composable
+private fun OwnedIssueCard(item: OwnedIssueItem, onClick: () -> Unit) {
+    val statePill: Pair<String, Color> = when (item.displayState) {
+        "merged" -> "Merged" to Color(0xFF8250DF)
+        "closed" -> "Closed" to MaterialTheme.colorScheme.tertiary
+        else -> "Open" to Color(0xFF4CAF50)
+    }
+
+    KomiSurface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .clickable(onClick = onClick)
+    ) {
+        Row(modifier = Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = if (item.isPr) "🔀" else "📄",
+                    style = MaterialTheme.typography.titleSmall
+                )
+            }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = item.repoFullName,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "#${item.number}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (item.isPr) {
+                        StatePill("PR", MaterialTheme.colorScheme.primary)
+                    }
+                    StatePill(statePill.first, statePill.second)
+                }
+                Text(
+                    text = item.title.ifBlank { "(无标题)" },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (item.comments > 0) {
+                        Text(
+                            "💬 ${item.comments}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Text(
+                        text = remember(item.updatedAt) { relativeTimeFromIso(item.updatedAt) },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    )
                 }
             }
         }
@@ -390,131 +454,7 @@ private fun SummaryMetric(label: String, value: String) {
     }
 }
 
-@Composable
-private fun StatePill(text: String, color: Color) {
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(4.dp))
-            .background(color.copy(alpha = 0.15f))
-            .padding(horizontal = 5.dp, vertical = 1.dp)
-    ) {
-        Text(
-            text = text,
-            style = MaterialTheme.typography.labelSmall,
-            color = color,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.Bold
-        )
-    }
-}
-
-@Composable
-private fun NotificationCard(n: GitHubNotification, realState: String? = null, onClick: () -> Unit) {
-    val isIssue = n.subject.type == "Issue"
-    val isPR = n.subject.type == "PullRequest"
-
-    // 仅使用真实解析出的状态，绝不用标题启发式猜测
-    val statePill: Pair<String, Color>? = when (realState) {
-        "open" -> "Open" to Color(0xFF4CAF50)
-        "closed" -> "Closed" to MaterialTheme.colorScheme.tertiary
-        "merged" -> "Merged" to Color(0xFF8250DF)
-        else -> null
-    }
-
-    val typeIcon = when (n.subject.type) {
-        "Issue" -> if (realState == "closed") "🟣" else "🟢"
-        "PullRequest" -> "🔀"
-        "Release" -> "🏷️"
-        "Commit" -> "📦"
-        else -> "🔔"
-    }
-    val reasonText = when (n.reason) {
-        "mention" -> "提及了你"
-        "assign" -> "指派给你"
-        "review_requested" -> "请求你评审"
-        "author" -> "你创建的"
-        "comment" -> "有新评论"
-        "ci_activity" -> "CI 状态"
-        "approval_requested" -> "请求批准"
-        "state_change" -> "状态变更"
-        "subscribed" -> "订阅更新"
-        "team_mention" -> "团队提及"
-        "security_alert" -> "安全警报"
-        "invitation" -> "邀请"
-        "member_feature_requested" -> "功能请求"
-        else -> n.reason
-    }
-    val reasonIcon = when (n.reason) {
-        "mention" -> "@"
-        "assign" -> "👤"
-        "review_requested" -> "👀"
-        "author" -> "✏️"
-        "comment" -> "💬"
-        "ci_activity" -> "⚙️"
-        "approval_requested" -> "✅"
-        "state_change" -> "🔄"
-        "subscribed" -> "🔔"
-        "team_mention" -> "👥"
-        "security_alert" -> "🔒"
-        "invitation" -> "✉️"
-        else -> "📌"
-    }
-    KomiSurface(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).clickable(onClick = onClick)
-    ) {
-        Row(modifier = Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            AsyncImage(
-                model = coil3.request.ImageRequest.Builder(LocalContext.current)
-                    .data(n.repository.owner.avatar_url)
-                    .crossfade(false)
-                    .memoryCacheKey(n.repository.owner.avatar_url)
-                    .build(),
-                contentDescription = null,
-                modifier = Modifier.size(36.dp).clip(CircleShape),
-                contentScale = ContentScale.Crop
-            )
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(typeIcon, style = MaterialTheme.typography.titleSmall)
-                    Text(
-                        text = n.repository.full_name,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Medium
-                    )
-                    if (isIssue || isPR) {
-                        if (statePill != null) {
-                            StatePill(statePill.first, statePill.second)
-                        } else {
-                            // 状态尚未解析出来：显示中性提示，不猜测
-                            StatePill("同步中", MaterialTheme.colorScheme.outline)
-                        }
-                    }
-                    if (n.unread) {
-                        Box(
-                            modifier = Modifier
-                                .size(7.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primary)
-                        )
-                    }
-                }
-                Text(
-                    text = n.subject.title,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 2
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("$reasonIcon $reasonText", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    val timeText = remember(n.updated_at) { relativeTimeFromIso(n.updated_at) }
-                    Text(timeText, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
-                }
-            }
-        }
-    }
-}
-
+/** 「动态」卡片：别人对你仓库的 star / fork / issue / PR / release 操作 */
 @Composable
 private fun EventCard(e: GitHubEvent) {
     val isIssueEvent = e.type == "IssuesEvent"

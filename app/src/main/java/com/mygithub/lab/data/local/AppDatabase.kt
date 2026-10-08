@@ -48,14 +48,6 @@ data class RecentViewEntity(
     val viewed_at: Long
 )
 
-@Entity(tableName = "notifications")
-data class NotificationEntity(
-    @PrimaryKey val id: String,
-    val json: String,
-    val updated_at: String,
-    val cached_at: Long
-)
-
 // ===== DAO =====
 
 @Dao
@@ -121,29 +113,11 @@ interface SearchHistoryDao {
     suspend fun clear(type: String)
 }
 
-@Dao
-interface NotificationDao {
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsertAll(notifications: List<NotificationEntity>)
-
-    @Query("SELECT * FROM notifications ORDER BY updated_at DESC")
-    suspend fun getAll(): List<NotificationEntity>
-
-    @Query("UPDATE notifications SET json = :updatedJson WHERE id = :id")
-    suspend fun updateNotificationJson(id: String, updatedJson: String)
-
-    @Query("DELETE FROM notifications WHERE updated_at < :cutoff")
-    suspend fun deleteOlderThan(cutoff: String)
-
-    @Query("DELETE FROM notifications")
-    suspend fun clear()
-}
-
 // ===== 数据库 =====
 
 @Database(
-    entities = [RepoCacheEntity::class, StarTagEntity::class, SearchHistoryEntity::class, RecentViewEntity::class, NotificationEntity::class],
-    version = 3,
+    entities = [RepoCacheEntity::class, StarTagEntity::class, SearchHistoryEntity::class, RecentViewEntity::class],
+    version = 4,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -151,7 +125,6 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun starTagDao(): StarTagDao
     abstract fun searchHistoryDao(): SearchHistoryDao
     abstract fun recentViewDao(): RecentViewDao
-    abstract fun notificationDao(): NotificationDao
 
     companion object {
         @Volatile private var instance: AppDatabase? = null

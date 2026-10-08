@@ -72,7 +72,10 @@ interface GitHubApi {
         @Path("owner") owner: String,
         @Path("repo") repo: String,
         @Query("state") state: String = "open",
-        @Query("per_page") perPage: Int = 30
+        @Query("sort") sort: String = "updated",
+        @Query("direction") direction: String = "desc",
+        @Query("per_page") perPage: Int = 100,
+        @Query("page") page: Int = 1
     ): List<GitHubIssue>
 
     @GET("repos/{owner}/{repo}/issues/{number}")
@@ -154,15 +157,6 @@ interface GitHubApi {
         @Path("repo") repo: String
     ): retrofit2.Response<Unit>
 
-    @GET("notifications")
-    suspend fun getNotificationsPage(
-        @Header("Authorization") token: String,
-        @Query("all") all: Boolean = false,
-        @Query("participating") participating: Boolean = false,
-        @Query("per_page") perPage: Int = 100,
-        @Query("page") page: Int = 1
-    ): Response<List<GitHubNotification>>
-
     @GET("repos/{owner}/{repo}/events")
     suspend fun getRepoEvents(
         @Header("Authorization") token: String,
@@ -171,18 +165,6 @@ interface GitHubApi {
         @Query("per_page") perPage: Int = 30,
         @Query("page") page: Int = 1
     ): List<GitHubEvent>
-
-    @POST("graphql")
-    suspend fun graphql(
-        @Header("Authorization") token: String,
-        @Body request: GraphQLRequest
-    ): GraphQLResponse
-
-    @PATCH("notifications/threads/{thread_id}")
-    suspend fun markThreadAsRead(
-        @Header("Authorization") token: String,
-        @Path("thread_id") threadId: String
-    ): retrofit2.Response<Unit>
 
     @GET("users/{username}/events")
     suspend fun getUserEvents(
@@ -251,33 +233,6 @@ data class GitHubUser(
 )
 
 @Serializable
-data class GitHubNotification(
-    val id: String = "",
-    val unread: Boolean = false,
-    val reason: String = "",
-    val updated_at: String = "",
-    val subject: NotificationSubject = NotificationSubject(),
-    val repository: NotificationRepo = NotificationRepo()
-)
-
-@Serializable
-data class GraphQLRequest(
-    val query: String
-)
-
-@Serializable
-data class GraphQLResponse(
-    val data: JsonElement? = null,
-    val errors: List<GraphQLError>? = null
-)
-
-@Serializable
-data class GraphQLError(
-    val message: String = "",
-    val path: List<String>? = null
-)
-
-@Serializable
 data class CreateCommentRequest(val body: String)
 
 @Serializable
@@ -316,28 +271,6 @@ data class EventPayload(
     val ref_type: String? = null,
     val size: Int = 0,
     val description: String? = null
-)
-
-@Serializable
-data class NotificationSubject(
-    val title: String = "",
-    val type: String = "", // Issue, PullRequest, Release, Commit, etc
-    val url: String = "",
-    val latest_comment_url: String? = null
-)
-
-@Serializable
-data class NotificationRepo(
-    val id: Long = 0,
-    val full_name: String = "",
-    val html_url: String = "",
-    val owner: NotificationOwner = NotificationOwner()
-)
-
-@Serializable
-data class NotificationOwner(
-    val login: String = "",
-    val avatar_url: String = ""
 )
 
 @Serializable
@@ -403,12 +336,29 @@ data class GitHubIssue(
     val created_at: String = "",
     val updated_at: String = "",
     val html_url: String = "",
-    val repository_url: String = ""
+    val repository_url: String = "",
+    /** 仅当该条目实际是 Pull Request 时存在（GitHub REST 约定） */
+    val pull_request: PullRequestMarker? = null
 ) {
     /** 从 repository_url (api.github.com/repos/o/r) 提取 o/r */
     val repoFullName: String get() =
         repository_url.substringAfter("repos/", "").ifBlank { "" }
+
+    /** 是否为 Pull Request */
+    val isPr: Boolean get() = pull_request != null
+
+    /** 是否为已合并的 Pull Request */
+    val isMerged: Boolean get() = pull_request?.merged_at != null
 }
+
+@Serializable
+data class PullRequestMarker(
+    val url: String? = null,
+    val html_url: String? = null,
+    val diff_url: String? = null,
+    val patch_url: String? = null,
+    val merged_at: String? = null
+)
 
 @Serializable
 data class GitHubLabel(

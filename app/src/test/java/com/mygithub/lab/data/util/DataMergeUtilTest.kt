@@ -4,36 +4,10 @@ import com.mygithub.lab.data.api.EventActor
 import com.mygithub.lab.data.api.EventPayload
 import com.mygithub.lab.data.api.EventRepo
 import com.mygithub.lab.data.api.GitHubEvent
-import com.mygithub.lab.data.api.GitHubNotification
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DataMergeUtilTest {
-
-    @Test
-    fun applyReadOverrides_overridesUnreadStateForMarkedIds() {
-        val notifications = listOf(
-            GitHubNotification(id = "1", unread = true),
-            GitHubNotification(id = "2", unread = true),
-            GitHubNotification(id = "3", unread = false)
-        )
-        val overrides = setOf("1", "3")
-
-        val result = DataMergeUtil.applyReadOverrides(notifications, overrides)
-
-        assertFalse(result.find { it.id == "1" }!!.unread) // overridden to false
-        assertTrue(result.find { it.id == "2" }!!.unread)  // remains true
-        assertFalse(result.find { it.id == "3" }!!.unread) // was false, remains false
-    }
-
-    @Test
-    fun applyReadOverrides_emptyOverrides_returnsOriginal() {
-        val notifications = listOf(GitHubNotification(id = "1", unread = true))
-        val result = DataMergeUtil.applyReadOverrides(notifications, emptySet())
-        assertTrue(result.first().unread)
-    }
 
     @Test
     fun curateEvents_filtersPushAndKeepsAllowedTypesSortedDesc() {
