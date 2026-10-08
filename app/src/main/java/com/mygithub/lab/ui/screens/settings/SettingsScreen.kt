@@ -171,6 +171,21 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            Spacer(modifier = Modifier.height(6.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.35f))
+                    .padding(10.dp)
+            ) {
+                Text(
+                    text = "提示：如果手机已经开了 VPN / 全局代理，请选择【直连 GitHub】。" +
+                        "App 层再叠一层代理会导致握手失败（如 HTTP 402/407）。",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
             Spacer(modifier = Modifier.height(10.dp))
 
             // 模式选择三卡片

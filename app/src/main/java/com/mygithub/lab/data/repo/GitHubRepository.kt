@@ -65,10 +65,49 @@ class GitHubRepository(context: Context) {
         chain.proceed(request)
     }
 
+    /**
+     * 强制直连的客户端：用于自定义代理隧道失败时的回退重试。
+     * 不含 proxySelector，也不含回退拦截器（避免递归）。
+     */
+    private val directClient: OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(java.time.Duration.ofSeconds(15))
+        .readTimeout(java.time.Duration.ofSeconds(30))
+        .addInterceptor(defaultHeadersInterceptor)
+        .proxy(java.net.Proxy.NO_PROXY)
+        .build()
+
+    /**
+     * 代理回退拦截器：
+     * 当配置为自定义代理且请求因代理隧道失败（如 HTTP 402/407 拒绝 CONNECT）时，
+     * 自动改用直连重试一次。这样即使代理配置残留或节点失效，App 仍能正常工作
+     * （特别是系统已有 VPN/代理时，App 层再套代理是多余的）。
+     */
+    @Volatile var lastProxyFallbackAt: Long = 0L
+        private set
+
+    private val proxyFallbackInterceptor = Interceptor { chain ->
+        try {
+            chain.proceed(chain.request())
+        } catch (e: java.io.IOException) {
+            val settings = com.mygithub.lab.data.network.ProxyManager.getSettings(appContext)
+            if (com.mygithub.lab.data.network.ProxyManager.isProxyFailure(e, settings)) {
+                android.util.Log.w(
+                    "GitHubRepository",
+                    "代理隧道失败，自动回退直连重试: ${e.message}"
+                )
+                lastProxyFallbackAt = System.currentTimeMillis()
+                directClient.newCall(chain.request()).execute()
+            } else {
+                throw e
+            }
+        }
+    }
+
     private val okClient = OkHttpClient.Builder()
         .connectTimeout(java.time.Duration.ofSeconds(15))
         .readTimeout(java.time.Duration.ofSeconds(30))
         .addInterceptor(defaultHeadersInterceptor)
+        .addInterceptor(proxyFallbackInterceptor)
         .proxySelector(com.mygithub.lab.data.network.ProxyManager.createDynamicProxySelector(appContext))
         .build()
 
@@ -284,6 +323,14 @@ class GitHubRepository(context: Context) {
         val cause = e.cause?.message.orEmpty()
         val all = "$msg $cause"
         return when {
+            // 代理隧道失败优先判断（典型：Unexpected response code for CONNECT: 402）
+            all.contains("CONNECT", ignoreCase = true) -> {
+                val code = Regex("(\\d{3})").find(all)?.groupValues?.get(1)
+                val detail = if (code != null) "HTTP $code" else "隧道被拒"
+                "代理隧道建立失败（$detail）：当前自定义代理拒绝了到 GitHub 的连接。" +
+                    "请到「应用设置 → 网络加速与代理」改为直连模式（系统已有 VPN 时无需再设代理）"
+            }
+            all.contains("407") -> "代理需要身份验证（HTTP 407）：请检查代理账号密码"
             all.contains("403") || all.contains("429") || all.contains("rate limit", ignoreCase = true) ->
                 "GitHub API 速率限制已用尽，请稍后重试"
             all.contains("401") || all.contains("Bad credentials", ignoreCase = true) ->
@@ -296,7 +343,7 @@ class GitHubRepository(context: Context) {
             all.contains("Connection refused", ignoreCase = true) ||
                 all.contains("Failed to connect", ignoreCase = true) ||
                 all.contains("ECONNREFUSED", ignoreCase = true) ->
-                "代理连接被拒绝：请确认代理端口可用（$prefix）"
+                "连接被拒绝：请确认代理端口可用，或改为直连模式（$prefix）"
             all.contains("SSL", ignoreCase = true) || all.contains("certificate", ignoreCase = true) ->
                 "TLS 证书校验失败：请检查代理或镜像配置（$prefix）"
             else -> "$prefix: ${e.message ?: e.javaClass.simpleName}"

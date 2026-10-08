@@ -101,6 +101,32 @@ object ProxyManager {
     }
 
     /**
+     * 判断异常是否为「代理层失败」（而非 GitHub 本身返回错误）。
+     * 典型：HTTP 代理对 CONNECT 返回 402/403/407/502，或代理端口拒绝连接。
+     * 用于触发“回退直连重试”与精准错误提示。
+     */
+    fun isProxyFailure(e: Throwable, settings: ProxySettings): Boolean {
+        if (settings.mode != ProxyMode.CUSTOM) return false
+        var cur: Throwable? = e
+        var depth = 0
+        while (cur != null && depth < 5) {
+            val msg = cur.message.orEmpty()
+            if (msg.contains("CONNECT", ignoreCase = true) ||
+                msg.contains("Failed to authenticate with proxy", ignoreCase = true) ||
+                msg.contains("Connection refused", ignoreCase = true) ||
+                msg.contains("Failed to connect", ignoreCase = true) ||
+                msg.contains("ECONNREFUSED", ignoreCase = true) ||
+                msg.contains("proxy", ignoreCase = true)
+            ) {
+                return true
+            }
+            cur = cur.cause
+            depth++
+        }
+        return false
+    }
+
+    /**
      * 对给定的目标 URL 进行公共镜像前缀加速包装（针对 Release、Raw、Repo 资源）
      */
     fun wrapUrlIfMirror(context: Context, targetUrl: String): String {
