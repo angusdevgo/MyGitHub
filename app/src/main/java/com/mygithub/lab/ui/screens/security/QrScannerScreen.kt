@@ -151,18 +151,12 @@ fun QrScannerScreen(
                                     scanner.process(inputImage)
                                         .addOnSuccessListener { barcodes ->
                                             for (barcode in barcodes) {
-                                                val raw = barcode.rawValue ?: continue
-                                                if (!scanned) {
-                                                    if (raw.startsWith("otpauth://totp/", ignoreCase = true)) {
-                                                        val payload = parseOtpAuthUri(raw)
-                                                        if (payload != null) {
-                                                            scanned = true
-                                                            onScanned(payload)
-                                                        }
-                                                    } else {
-                                                        // 跨设备配对 JSON 字符串或其他 2FA 原始凭据
+                                                val raw = barcode.rawValue
+                                                if (raw != null && raw.startsWith("otpauth://totp/", ignoreCase = true)) {
+                                                    val payload = parseOtpAuthUri(raw)
+                                                    if (payload != null && !scanned) {
                                                         scanned = true
-                                                        onScanned(OtpAuthPayload(secret = raw, issuer = null, account = null))
+                                                        onScanned(payload)
                                                     }
                                                 }
                                             }
@@ -195,7 +189,7 @@ fun QrScannerScreen(
                             .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.7f), RoundedCornerShape(4.dp))
                     )
                     Text(
-                        "将电脑屏幕上的配对二维码或 GitHub 二维码对准此区域",
+                        "将 GitHub 2FA 设置页的二维码对准此区域",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.padding(top = 12.dp)

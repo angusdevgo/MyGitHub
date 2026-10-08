@@ -68,10 +68,6 @@ import com.mygithub.lab.ui.screens.repos.ReposScreen
 import com.mygithub.lab.ui.screens.issues.IssueDetailScreen
 import com.mygithub.lab.ui.screens.about.AboutScreen
 import com.mygithub.lab.ui.screens.settings.SettingsScreen
-import com.mygithub.lab.ui.screens.security.DevicePairingScreen
-import com.mygithub.lab.ui.components.DeviceAuthRequestDialog
-import com.mygithub.lab.data.relay.RelayClient
-import com.mygithub.lab.data.relay.IncomingAuthRequest
 import com.mygithub.lab.ui.theme.MyGitHubTheme
 
 data class TabItem(
@@ -89,8 +85,6 @@ object Routes {
     const val ABOUT = "about"
     const val SETTINGS = "settings"
     const val SECURITY = "security"
-    const val DEVICE_PAIRING = "device_pairing"
-    const val QR_SCANNER = "qr_scanner"
 }
 
 @androidx.compose.material3.ExperimentalMaterial3Api
@@ -118,18 +112,6 @@ fun MyGitHubApp() {
 
         // 应用内更新信息状态
         var appUpdateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
-        // 跨设备身份验证弹窗状态
-        var incomingAuthRequest by remember { mutableStateOf<IncomingAuthRequest?>(null) }
-
-        // 启动跨设备挑战监听服务 (公网 WS + 局域网 ServerSocket 双轨监听)
-        androidx.compose.runtime.LaunchedEffect(Unit) {
-            val client = RelayClient.get(context)
-            client.startListening()
-            com.mygithub.lab.data.relay.LanRelayServer.get(context).start()
-            client.incomingRequests.collect { req ->
-                incomingAuthRequest = req
-            }
-        }
 
         // 启动时静默检查更新一次（后台异步，零阻塞）
         androidx.compose.runtime.LaunchedEffect(Unit) {
@@ -220,52 +202,6 @@ fun MyGitHubApp() {
             composable(Routes.SECURITY) {
                 BackHandler(enabled = true) { navController.popBackStack() }
                 com.mygithub.lab.ui.screens.security.SecurityScreen(
-                    onBack = { navController.popBackStack() },
-                    onNavigateToPairing = { navController.navigate(Routes.DEVICE_PAIRING) }
-                )
-            }
-            composable(Routes.DEVICE_PAIRING) {
-                BackHandler(enabled = true) { navController.popBackStack() }
-                DevicePairingScreen(
-                    onBack = { navController.popBackStack() },
-                    onScanQr = { navController.navigate(Routes.QR_SCANNER) }
-                )
-            }
-            composable(Routes.QR_SCANNER) {
-                BackHandler(enabled = true) { navController.popBackStack() }
-                com.mygithub.lab.ui.screens.security.QrScannerScreen(
-                    onScanned = { payload ->
-                        // 判断是否为设备配对二维码还是普通 TOTP
-                        try {
-                            val rawText = payload.secret.trim()
-                            if (rawText.startsWith("{") && rawText.endsWith("}")) {
-                                val jsonElem = kotlinx.serialization.json.Json.parseToJsonElement(rawText)
-                                val obj = jsonElem as? kotlinx.serialization.json.JsonObject
-                                val did = obj?.get("did")?.toString()?.trim('"') ?: ""
-                                val secret = obj?.get("secret")?.toString()?.trim('"') ?: ""
-                                val name = obj?.get("clientName")?.toString()?.trim('"') ?: "Chrome on PC"
-                                val relay = obj?.get("relay")?.toString()?.trim('"') ?: "https://mygithub-relay.workers.dev"
-
-                                if (did.isNotBlank() && secret.isNotBlank()) {
-                                    com.mygithub.lab.security.device.DeviceTrustStore.savePairedDevice(
-                                        context,
-                                        com.mygithub.lab.security.device.PairedDevice(did, name, secret, relay)
-                                    )
-                                    android.widget.Toast.makeText(context, "已成功绑定设备: $name", android.widget.Toast.LENGTH_SHORT).show()
-                                } else {
-                                    android.widget.Toast.makeText(context, "二维码数据不完整", android.widget.Toast.LENGTH_SHORT).show()
-                                }
-                            } else {
-                                // 普通 TOTP 密钥
-                                com.mygithub.lab.security.totp.TotpStore.saveSecret(context, payload.secret)
-                                com.mygithub.lab.security.totp.TotpStore.saveIssuerAccount(context, payload.issuer, payload.account)
-                                android.widget.Toast.makeText(context, "已导入 TOTP 密钥", android.widget.Toast.LENGTH_SHORT).show()
-                            }
-                        } catch (e: Exception) {
-                            android.widget.Toast.makeText(context, "解析失败: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
-                        }
-                        navController.popBackStack()
-                    },
                     onBack = { navController.popBackStack() }
                 )
             }
@@ -359,15 +295,6 @@ fun MyGitHubApp() {
             UpdateDialog(
                 info = info,
                 onDismiss = { appUpdateInfo = null }
-            )
-        }
-
-        // 跨设备身份验证全局弹窗 (100% 官方风格复刻)
-        incomingAuthRequest?.let { req ->
-            DeviceAuthRequestDialog(
-                request = req,
-                accountHint = "${TokenStore.getToken(context)?.take(8) ?: "GitHub"} · @${req.deviceName}",
-                onDismiss = { incomingAuthRequest = null }
             )
         }
     }

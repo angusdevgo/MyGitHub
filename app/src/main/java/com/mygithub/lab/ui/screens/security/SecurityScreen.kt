@@ -17,7 +17,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material3.AlertDialog
@@ -68,10 +67,7 @@ import kotlinx.coroutines.launch
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SecurityScreen(
-    onBack: () -> Unit,
-    onNavigateToPairing: () -> Unit = {}
-) {
+fun SecurityScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     val snackbarHost = remember { SnackbarHostState() }
@@ -242,45 +238,6 @@ fun SecurityScreen(
                             Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
                             Text("  解除绑定", color = MaterialTheme.colorScheme.error)
                         }
-                    }
-                }
-
-                // ===== 跨设备 2FA 配对卡片 =====
-                KomiSurface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onNavigateToPairing() }
-                ) {
-                    Row(
-                        modifier = Modifier.padding(18.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(androidx.compose.foundation.shape.CircleShape)
-                                .background(MaterialTheme.colorScheme.primaryContainer),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Filled.Devices, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-                        }
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("跨设备 2FA 配对", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                            Text(
-                                "配合浏览器扩展，电脑登录免输动态码，手机弹窗批准",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = null,
-                            modifier = Modifier
-                                .size(20.dp)
-                                .graphicsLayer { rotationZ = 180f },
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                        )
                     }
                 }
 
