@@ -130,4 +130,6 @@ dependencies {
     implementation("androidx.compose.material:material") // CameraX 预览需要 Accompanist/AndroidView 支持
 
     debugImplementation("androidx.compose.ui:ui-tooling")
+
+    testImplementation("junit:junit:4.13.2")
 }

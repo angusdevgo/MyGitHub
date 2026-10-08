@@ -5,7 +5,14 @@ import com.mygithub.lab.data.api.GitHubApi
 import com.mygithub.lab.data.api.GitHubRepo
 import com.mygithub.lab.data.auth.TokenStore
 import com.mygithub.lab.data.local.AppDatabase
+import com.mygithub.lab.data.local.NotificationReadOverrideStore
 import com.mygithub.lab.data.local.RepoCacheEntity
+import com.mygithub.lab.data.model.IssueRef
+import com.mygithub.lab.data.model.IssueState
+import com.mygithub.lab.data.model.OwnedRepoSummary
+import com.mygithub.lab.data.util.DataMergeUtil
+import com.mygithub.lab.data.util.IssueStateQuery
+import com.mygithub.lab.data.util.LinkHeaderParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.Deferred
@@ -14,9 +21,19 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.Response
 import retrofit2.Retrofit
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
 import java.time.LocalDate
@@ -30,11 +47,21 @@ class GitHubRepository(context: Context) {
     private val appContext = context.applicationContext
     private val token: String get() = TokenStore.getToken(appContext).orEmpty()
     private val db: AppDatabase get() = AppDatabase.get(appContext)
+    private val readOverrideStore = NotificationReadOverrideStore(appContext)
     private val json = Json { ignoreUnknownKeys = true }
+
+    private val rateLimitInterceptor = Interceptor { chain ->
+        val request = chain.request().newBuilder()
+            .header("Accept", "application/vnd.github+json")
+            .build()
+        val response = chain.proceed(request)
+        response
+    }
 
     private val okClient = OkHttpClient.Builder()
         .connectTimeout(java.time.Duration.ofSeconds(15))
         .readTimeout(java.time.Duration.ofSeconds(30))
+        .addInterceptor(rateLimitInterceptor)
         .proxySelector(com.mygithub.lab.data.network.ProxyManager.createDynamicProxySelector(appContext))
         .build()
 
@@ -243,24 +270,34 @@ class GitHubRepository(context: Context) {
         Result.Success(api.getRepo("Bearer $token", owner, repo))
     } catch (e: Exception) { Result.Error("仓库加载失败: ${e.message}") }
 
-    private val issueStateCache = java.util.concurrent.ConcurrentHashMap<String, String>()
+    // ===== Issue 状态缓存（带 60 秒 TTL，支持显式失效） =====
+    private data class CacheEntry(val state: String, val at: Long)
+    private val issueStateCache = java.util.concurrent.ConcurrentHashMap<String, CacheEntry>()
+    private val issueStateTtlMs = 60_000L
+
+    private fun normalizeIssueKey(key: String): String = key.removePrefix("https://api.github.com/")
 
     fun setCachedIssueState(key: String, state: String) {
-        issueStateCache[key] = state
-        val cleanKey = key.removePrefix("https://api.github.com/")
-        issueStateCache[cleanKey] = state
+        val now = System.currentTimeMillis()
+        issueStateCache[key] = CacheEntry(state, now)
+        issueStateCache[normalizeIssueKey(key)] = CacheEntry(state, now)
     }
 
     fun getCachedIssueState(key: String): String? {
-        val cleanKey = key.removePrefix("https://api.github.com/")
-        return issueStateCache[key] ?: issueStateCache[cleanKey]
+        val now = System.currentTimeMillis()
+        val entry = issueStateCache[key] ?: issueStateCache[normalizeIssueKey(key)] ?: return null
+        return if (now - entry.at <= issueStateTtlMs) entry.state else null
+    }
+
+    /** 下拉刷新 / 重新同步时显式清空，避免陈旧状态永远停留 */
+    fun invalidateIssueStates() {
+        issueStateCache.clear()
     }
 
     suspend fun getIssue(owner: String, repo: String, num: Int): Result<com.mygithub.lab.data.api.GitHubIssue> {
         return try {
             val issue = api.getIssue("Bearer $token", owner, repo, num)
             setCachedIssueState("repos/$owner/$repo/issues/$num", issue.state)
-            setCachedIssueState("https://api.github.com/repos/$owner/$repo/issues/$num", issue.state)
             Result.Success(issue)
         } catch (e: Exception) { Result.Error("Issue 加载失败: ${e.message}") }
     }
@@ -276,11 +313,10 @@ class GitHubRepository(context: Context) {
     suspend fun updateIssueState(owner: String, repo: String, num: Int, state: String): Result<com.mygithub.lab.data.api.GitHubIssue> = try {
         val res = api.updateIssue("Bearer $token", owner, repo, num, com.mygithub.lab.data.api.UpdateIssueRequest(state = state))
         setCachedIssueState("repos/$owner/$repo/issues/$num", state)
-        setCachedIssueState("https://api.github.com/repos/$owner/$repo/issues/$num", state)
         Result.Success(res)
     } catch (e: Exception) { Result.Error("操作失败: ${e.message}") }
 
-    fun getNotifications(all: Boolean = true): Flow<Result<List<com.mygithub.lab.data.api.GitHubNotification>>> = flow {
+    fun getNotifications(all: Boolean = true, maxPages: Int = 2): Flow<Result<List<com.mygithub.lab.data.api.GitHubNotification>>> = flow {
         // 保留 1 个月内的通知数据（30天）
         val cutoff = java.time.OffsetDateTime.now(java.time.ZoneOffset.UTC).minusDays(30)
             .format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME) + "Z"
@@ -290,32 +326,76 @@ class GitHubRepository(context: Context) {
             emit(Result.Success(cached.map { json.decodeFromString(com.mygithub.lab.data.api.GitHubNotification.serializer(), it.json) }, fromCache = true))
         }
         try {
-            val remote = api.getNotifications("Bearer $token", all = all)
-            db.notificationDao().clear()
-            db.notificationDao().upsertAll(remote.map {
+            val fetched = mutableListOf<com.mygithub.lab.data.api.GitHubNotification>()
+            val seenIds = mutableSetOf<String>()
+            var page = 1
+            var lastPage = maxPages
+            while (page <= minOf(lastPage, maxPages)) {
+                val response = api.getNotificationsPage("Bearer $token", all = all, perPage = 100, page = page)
+                if (!response.isSuccessful) break
+                val body = response.body().orEmpty()
+                if (page == 1) {
+                    lastPage = LinkHeaderParser.parseLastPage(response.headers()["Link"]) ?: 1
+                }
+                body.forEach { n ->
+                    if (n.id.isNotBlank() && seenIds.add(n.id)) fetched.add(n)
+                }
+                if (body.size < 100) break
+                page++
+            }
+
+            // 应用本地已读覆盖表（避免刷新后蓝点复活）
+            val readOverrides = readOverrideStore.getMarkedReadIds()
+            val merged = DataMergeUtil.applyReadOverrides(fetched, readOverrides)
+
+            // 不再 clear() 全表，避免抹掉本地已读状态；仅 upsert 新拉取到的窗口
+            db.notificationDao().upsertAll(merged.map {
                 com.mygithub.lab.data.local.NotificationEntity(
                     id = it.id, json = json.encodeToString(com.mygithub.lab.data.api.GitHubNotification.serializer(), it),
                     updated_at = it.updated_at, cached_at = System.currentTimeMillis()
                 )
             })
-            emit(Result.Success(remote))
+            // 以数据库（含历史窗口）为准输出，保证分页之外的通知仍可见
+            val allRows = db.notificationDao().getAll()
+            val result = allRows.mapNotNull { row ->
+                runCatching {
+                    val n = json.decodeFromString(com.mygithub.lab.data.api.GitHubNotification.serializer(), row.json)
+                    DataMergeUtil.applyReadOverrides(listOf(n), readOverrides).first()
+                }.getOrNull()
+            }
+            emit(Result.Success(result))
         } catch (e: Exception) {
-            if (cached.isEmpty()) emit(Result.Error("通知加载失败: ${e.message}"))
+            if (cached.isEmpty()) emit(Result.Error(friendlyError(e, "通知加载失败")))
         }
     }.flowOn(Dispatchers.IO)
 
     /**
-     * 将通知标记为已读：本地立即持久化 + 云端异步同步
+     * 将通知标记为已读：先写本地覆盖表 → 立即持久化 → 云端异步同步
+     * 先写覆盖表可保证 PATCH 失败时刷新后蓝点不复活。
      */
     suspend fun markNotificationAsRead(notification: com.mygithub.lab.data.api.GitHubNotification) {
         kotlinx.coroutines.withContext(Dispatchers.IO) {
+            readOverrideStore.markRead(notification.id)
             try {
                 val updated = notification.copy(unread = false)
                 val updatedJson = json.encodeToString(com.mygithub.lab.data.api.GitHubNotification.serializer(), updated)
                 db.notificationDao().updateNotificationJson(notification.id, updatedJson)
-                // 异步通知 GitHub 云端
                 api.markThreadAsRead("Bearer $token", notification.id)
             } catch (_: Exception) {}
+        }
+    }
+
+    /** 将网络/限流异常转为用户可读文案 */
+    private fun friendlyError(e: Exception, prefix: String): String {
+        val msg = e.message.orEmpty()
+        return when {
+            msg.contains("403") || msg.contains("429") || msg.contains("rate limit", ignoreCase = true) ->
+                "GitHub API 速率限制已用尽，请稍后重试"
+            msg.contains("401") || msg.contains("Bad credentials", ignoreCase = true) ->
+                "登录凭证已失效，请重新登录"
+            msg.contains("timeout", ignoreCase = true) || msg.contains("Unable to resolve host", ignoreCase = true) ->
+                "网络连接超时，请检查网络或代理设置"
+            else -> "$prefix: $msg"
         }
     }
 
@@ -336,84 +416,148 @@ class GitHubRepository(context: Context) {
             emit(Result.Success(cachedEvents, fromCache = true))
         }
         try {
-            val repos = api.getUserRepos("Bearer $token", perPage = 30).filter { !it.fork }
-            val cutoff = java.time.OffsetDateTime.now(java.time.ZoneOffset.UTC).minusDays(30)
-                .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss'Z'"))
+            // 1. 仅取自己拥有的仓库（affiliation=owner），最多 2 页 × 100 = 200 个
+            val ownedRepos = mutableListOf<GitHubRepo>()
+            for (page in 1..2) {
+                val chunk = api.getUserRepos(
+                    "Bearer $token",
+                    affiliation = "owner",
+                    sort = "pushed",
+                    perPage = 100,
+                    page = page
+                )
+                ownedRepos.addAll(chunk)
+                if (chunk.size < 100) break
+            }
+            val repos = ownedRepos.filter { !it.fork }
+
+            // 2. 并发限流（同时最多 6 个请求）拉取每个仓库的 events 事件流
             val allEvents = java.util.Collections.synchronizedList(mutableListOf<com.mygithub.lab.data.api.GitHubEvent>())
+            val semaphore = Semaphore(6)
 
             kotlinx.coroutines.supervisorScope {
-                // 并行 1：Search Issues（1 次请求，involves:@me 无需用户名，砍掉 getCurrentUser 串行前置）
-                launch {
-                    try {
-                        api.searchIssues("Bearer $token", "type:issue involves:@me created:>$cutoff", perPage = 30)
-                            .items.forEach { issue ->
-                                val repoFullName = issue.repository_url.removePrefix("https://api.github.com/repos/")
-                                allEvents.add(com.mygithub.lab.data.api.GitHubEvent(
-                                    id = "issue_${issue.user?.login ?: "unknown"}_${repoFullName}_${issue.number}",
-                                    type = "IssuesEvent",
-                                    actor = com.mygithub.lab.data.api.EventActor(
-                                        login = issue.user?.login ?: "unknown",
-                                        avatar_url = issue.user?.avatar_url ?: ""
-                                    ),
-                                    repo = com.mygithub.lab.data.api.EventRepo(name = repoFullName, url = ""),
-                                    payload = com.mygithub.lab.data.api.EventPayload(action = if (issue.state == "closed") "closed" else "opened"),
-                                    created_at = issue.created_at
-                                ))
-                                setCachedIssueState("repos/$repoFullName/issues/${issue.number}", issue.state)
-                                setCachedIssueState("https://api.github.com/repos/$repoFullName/issues/${issue.number}", issue.state)
-                            }
-                    } catch (_: Exception) {}
-                }
-                // 并行 2-7：top 3 活跃仓库的 stargazers + forks（6 个请求）
-                repos.take(3).forEach { repo ->
+                repos.forEach { r ->
                     launch {
-                        try {
-                            api.getRepoStargazers("Bearer $token", repo.owner.login, repo.name, perPage = 10)
-                                .filter { it.starred_at > cutoff }
-                                .forEach { star ->
-                                    allEvents.add(com.mygithub.lab.data.api.GitHubEvent(
-                                        id = "star_${star.user.login}_${repo.full_name}",
-                                        type = "WatchEvent",
-                                        actor = com.mygithub.lab.data.api.EventActor(login = star.user.login, avatar_url = star.user.avatar_url),
-                                        repo = com.mygithub.lab.data.api.EventRepo(name = repo.full_name, url = repo.html_url),
-                                        created_at = star.starred_at
-                                    ))
-                                }
-                        } catch (_: Exception) {}
-                    }
-                    launch {
-                        try {
-                            api.getRepoForks("Bearer $token", repo.owner.login, repo.name, perPage = 10)
-                                .filter { it.created_at > cutoff }
-                                .forEach { fork ->
-                                    allEvents.add(com.mygithub.lab.data.api.GitHubEvent(
-                                        id = "fork_${fork.owner.login}_${repo.full_name}",
-                                        type = "ForkEvent",
-                                        actor = com.mygithub.lab.data.api.EventActor(login = fork.owner.login, avatar_url = fork.owner.avatar_url),
-                                        repo = com.mygithub.lab.data.api.EventRepo(name = repo.full_name, url = repo.html_url),
-                                        created_at = fork.created_at
-                                    ))
-                                }
-                        } catch (_: Exception) {}
+                        semaphore.withPermit {
+                            try {
+                                api.getRepoEvents("Bearer $token", r.owner.login, r.name, perPage = 30)
+                                    .forEach { e -> if (ACTIVITY_EVENT_TYPES.contains(e.type)) allEvents.add(e) }
+                            } catch (_: Exception) {}
+                        }
                     }
                 }
             }
-            val sorted = allEvents.sortedByDescending { it.created_at }
-            // 写入 Room 缓存（复用 repo_cache 表，category=received_activity，免 DB 迁移）
+
+            val sorted = DataMergeUtil.curateEvents(allEvents, ACTIVITY_EVENT_TYPES)
+
+            // 3. 写入 Room 缓存（复用 repo_cache 表，category=received_activity，免 DB 迁移）
             db.repoCacheDao().clearCategory("received_activity")
-            db.repoCacheDao().upsertAll(sorted.take(50).map {
+            db.repoCacheDao().upsertAll(sorted.take(150).map {
                 RepoCacheEntity(full_name = it.id, json = json.encodeToString(com.mygithub.lab.data.api.GitHubEvent.serializer(), it), cached_at = System.currentTimeMillis(), category = "received_activity")
             })
-            // 与缓存不同才二次 emit（避免列表跳动）
+
+            // 4. 与缓存不同才二次 emit（避免列表跳动）
             if (sorted.map { it.id }.toSet() != cachedEvents.map { it.id }.toSet()) {
                 emit(Result.Success(sorted))
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
-            if (cachedEvents.isEmpty()) emit(Result.Error("动态加载失败: ${e.message}"))
+            if (cachedEvents.isEmpty()) emit(Result.Error(friendlyError(e, "动态加载失败")))
         }
     }.flowOn(Dispatchers.IO)
+
+    /**
+     * 自有仓库总量摘要（1 次请求即可得，不依赖事件流，数值永远准确）
+     * 同时计算“自上次查看以来 +N Stars / +M Forks”增量。
+     */
+    suspend fun getOwnedRepoSummary(): Result<OwnedRepoSummary> = try {
+        val ownedRepos = mutableListOf<GitHubRepo>()
+        for (page in 1..2) {
+            val chunk = api.getUserRepos("Bearer $token", affiliation = "owner", sort = "pushed", perPage = 100, page = page)
+            ownedRepos.addAll(chunk)
+            if (chunk.size < 100) break
+        }
+        val repos = ownedRepos.filter { !it.fork }
+
+        val totalStars = repos.sumOf { it.stargazers_count }
+        val totalForks = repos.sumOf { it.forks_count }
+        val totalOpenIssues = repos.sumOf { it.open_issues_count }
+
+        // 读取上次快照计算增量
+        val previous = db.repoCacheDao().getByCategory("received_counters")
+        val prevMap = previous.mapNotNull { row ->
+            runCatching { row.full_name to json.decodeFromString<RepoCounters>(row.json) }.getOrNull()
+        }.toMap()
+
+        var starsDelta = 0
+        var forksDelta = 0
+        if (prevMap.isNotEmpty()) {
+            repos.forEach { r ->
+                val prev = prevMap[r.full_name] ?: return@forEach
+                starsDelta += (r.stargazers_count - prev.stars).coerceAtLeast(0)
+                forksDelta += (r.forks_count - prev.forks).coerceAtLeast(0)
+            }
+        }
+
+        // 写入本次快照
+        db.repoCacheDao().clearCategory("received_counters")
+        db.repoCacheDao().upsertAll(repos.map { r ->
+            RepoCacheEntity(
+                full_name = r.full_name,
+                json = json.encodeToString(RepoCounters.serializer(), RepoCounters(r.stargazers_count, r.forks_count)),
+                cached_at = System.currentTimeMillis(),
+                category = "received_counters"
+            )
+        })
+
+        Result.Success(
+            OwnedRepoSummary(
+                totalStars = totalStars,
+                totalForks = totalForks,
+                totalOpenIssues = totalOpenIssues,
+                repoCount = repos.size,
+                starsDelta = starsDelta,
+                forksDelta = forksDelta
+            )
+        )
+    } catch (e: Exception) {
+        Result.Error(friendlyError(e, "统计加载失败"))
+    }
+
+    @kotlinx.serialization.Serializable
+    private data class RepoCounters(val stars: Int = 0, val forks: Int = 0)
+
+    /**
+     * GraphQL 批量解析 Issue / PR 实时状态（替代 N+1 单条请求）
+     * 按仓库分组，每请求最多 8 个仓库 / 40 个别名，超限自动分片；
+     * 单个分片失败不影响其余分片。
+     */
+    suspend fun resolveIssueStates(refs: List<IssueRef>): Map<String, String> {
+        if (refs.isEmpty()) return emptyMap()
+        val result = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+        val chunks = IssueStateQuery.chunkRefs(refs)
+
+        kotlinx.coroutines.supervisorScope {
+            chunks.forEach { repoGroup ->
+                launch {
+                    try {
+                        val query = IssueStateQuery.buildQuery(repoGroup)
+                        val resp = api.graphql("Bearer $token", com.mygithub.lab.data.api.GraphQLRequest(query))
+                        IssueStateQuery.parseResponse(resp.data?.jsonObject, repoGroup)
+                            .forEach { (url, state) -> result[url] = state }
+                    } catch (_: Exception) {
+                        // 单个分片失败静默降级，不影响其他分片
+                    }
+                }
+            }
+        }
+
+        // 写回 TTL 缓存
+        result.forEach { (url, state) -> setCachedIssueState(url, state) }
+        return result
+    }
 
 
     suspend fun getCachedUser(): com.mygithub.lab.data.api.GitHubUser? =
@@ -739,6 +883,16 @@ class GitHubRepository(context: Context) {
             instance ?: synchronized(this) {
                 instance ?: GitHubRepository(context).also { instance = it }
             }
+
+        /** 动态 Tab 保留的事件类型（滤掉 PushEvent 等刷屏噪声） */
+        val ACTIVITY_EVENT_TYPES = setOf(
+            "WatchEvent",
+            "ForkEvent",
+            "IssuesEvent",
+            "IssueCommentEvent",
+            "PullRequestEvent",
+            "ReleaseEvent"
+        )
     }
 }
 

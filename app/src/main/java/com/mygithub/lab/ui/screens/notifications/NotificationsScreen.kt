@@ -14,24 +14,21 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,6 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -47,16 +45,37 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import coil3.request.crossfade
+import com.mygithub.lab.data.api.GitHubEvent
 import com.mygithub.lab.data.api.GitHubNotification
+import com.mygithub.lab.data.model.IssueRef
+import com.mygithub.lab.data.model.OwnedRepoSummary
 import com.mygithub.lab.data.repo.GitHubRepository
-import com.mygithub.lab.ui.components.KomiSurface
-import com.mygithub.lab.ui.components.KomiChip
 import com.mygithub.lab.ui.components.KomiPullRefreshIndicator
+import com.mygithub.lab.ui.components.KomiSurface
 import com.mygithub.lab.ui.components.relativeTimeFromIso
 import kotlinx.coroutines.launch
 
 private enum class NotifFilter(val label: String) {
     ALL("全部"), UNREAD("未读"), MENTION("提及"), ASSIGN("指派")
+}
+
+/** 从通知的 subject.url 解析出 IssueRef（同时支持 /issues/N 与 /pulls/N） */
+internal fun parseIssueRef(url: String): IssueRef? {
+    if (url.isBlank()) return null
+    val prefix = "https://api.github.com/repos/"
+    if (!url.startsWith(prefix)) return null
+    val parts = url.removePrefix(prefix).split("/")
+    if (parts.size < 4) return null
+    val number = parts[3].toIntOrNull() ?: return null
+    val kind = parts[2]
+    if (kind != "issues" && kind != "pulls") return null
+    return IssueRef(
+        url = url,
+        owner = parts[0],
+        repo = parts[1],
+        number = number,
+        isPr = kind == "pulls"
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -70,7 +89,8 @@ fun NotificationsScreen(
     val scope = rememberCoroutineScope()
 
     var notifications by remember { mutableStateOf<List<GitHubNotification>>(emptyList()) }
-    var events by remember { mutableStateOf<List<com.mygithub.lab.data.api.GitHubEvent>>(emptyList()) }
+    var events by remember { mutableStateOf<List<GitHubEvent>>(emptyList()) }
+    var summary by remember { mutableStateOf<OwnedRepoSummary?>(null) }
     var eventsLoaded by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -82,47 +102,64 @@ fun NotificationsScreen(
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     val pullState = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
 
-    // 针对当前页面上的 Issue/PR 通知，在后台批量精准探测其实时状态
-    LaunchedEffect(notifications) {
-        val issueNotifs = notifications.filter { it.subject.type == "Issue" || it.subject.type == "PullRequest" }
-        issueNotifs.forEach { n ->
-            val cached = repo.getCachedIssueState(n.subject.url)
-            if (cached != null) {
-                issueStateMap = issueStateMap + (n.subject.url to cached)
-            } else {
-                val parts = n.subject.url.removePrefix("https://api.github.com/repos/").split("/")
-                if (parts.size >= 4) {
-                    val owner = parts[0]; val repoName = parts[1]; val num = parts[3].toIntOrNull()
-                    if (num != null) {
-                        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                            val r = repo.getIssue(owner, repoName, num)
-                            if (r is GitHubRepository.Result.Success) {
-                                issueStateMap = issueStateMap + (n.subject.url to r.data.state)
-                            }
-                        }
-                    }
-                }
-            }
-        }
+    // ===== 批量解析 Issue/PR 实时状态（GraphQL，替代逐条 N+1 请求） =====
+    val notificationUrls = remember(notifications) { notifications.map { it.subject.url } }
+    LaunchedEffect(notificationUrls, refreshKey) {
+        val refs = notifications.mapNotNull { parseIssueRef(it.subject.url) }
+        if (refs.isEmpty()) return@LaunchedEffect
+        // 先填缓存中仍然有效的状态，保证界面不闪烁
+        val cached = refs.mapNotNull { r ->
+            repo.getCachedIssueState(r.url)?.let { r.url to it }
+        }.toMap()
+        if (cached.isNotEmpty()) issueStateMap = issueStateMap + cached
+
+        val resolved = repo.resolveIssueStates(refs)
+        if (resolved.isNotEmpty()) issueStateMap = issueStateMap + resolved
     }
 
+    // ===== 拉取通知 / 动态 =====
     LaunchedEffect(refreshKey, selectedTab) {
         if (refreshKey == 0) loading = true
         error = null
         try {
             if (selectedTab == 0) {
-                repo.getNotifications(all = true).collect { r ->
+                repo.getNotifications(all = true, maxPages = 2).collect { r ->
                     when (r) {
-                        is GitHubRepository.Result.Success -> { notifications = r.data; loading = false; isRefreshing = false; if (refreshKey > 0) listState.scrollToItem(0) }
-                        is GitHubRepository.Result.Error -> { error = r.message; loading = false; isRefreshing = false }
+                        is GitHubRepository.Result.Success -> {
+                            notifications = r.data
+                            loading = false
+                            isRefreshing = false
+                            if (refreshKey > 0) listState.scrollToItem(0)
+                        }
+                        is GitHubRepository.Result.Error -> {
+                            error = r.message
+                            loading = false
+                            isRefreshing = false
+                        }
                     }
                 }
             } else {
                 repo.getReceivedActivity().collect { r ->
                     when (r) {
-                        is GitHubRepository.Result.Success -> { events = r.data; eventsLoaded = true; loading = false; isRefreshing = false; if (refreshKey > 0) listState.scrollToItem(0) }
-                        is GitHubRepository.Result.Error -> { error = r.message; loading = false; isRefreshing = false }
+                        is GitHubRepository.Result.Success -> {
+                            events = r.data
+                            eventsLoaded = true
+                            loading = false
+                            isRefreshing = false
+                            if (refreshKey > 0) listState.scrollToItem(0)
+                        }
+                        is GitHubRepository.Result.Error -> {
+                            error = r.message
+                            eventsLoaded = true
+                            loading = false
+                            isRefreshing = false
+                        }
                     }
+                }
+                // 总量摘要（数值准确，不依赖事件流）
+                when (val s = repo.getOwnedRepoSummary()) {
+                    is GitHubRepository.Result.Success -> summary = s.data
+                    is GitHubRepository.Result.Error -> {}
                 }
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -136,7 +173,7 @@ fun NotificationsScreen(
     }
 
     val filtered = remember(notifications, filter) {
-        androidx.compose.runtime.derivedStateOf {
+        derivedStateOf {
             when (filter) {
                 NotifFilter.ALL -> notifications
                 NotifFilter.UNREAD -> notifications.filter { it.unread }
@@ -155,7 +192,6 @@ fun NotificationsScreen(
         }
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            // 通知 / 动态 居中分段控制器（与仓库/议题设计对齐，移出左上角）
             SingleChoiceSegmentedButtonRow(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -173,7 +209,6 @@ fun NotificationsScreen(
                 }
             }
 
-            // 通知 filter chips（居中排列，仅通知 Tab 显示）
             if (selectedTab == 0) {
                 Row(
                     modifier = Modifier
@@ -190,89 +225,186 @@ fun NotificationsScreen(
                     }
                 }
             }
+
             when {
                 loading && !eventsLoaded && notifications.isEmpty() -> Row(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp),
                     horizontalArrangement = Arrangement.Center
                 ) { CircularProgressIndicator() }
-                error != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(error!!, color = MaterialTheme.colorScheme.error)
+
+                error != null && notifications.isEmpty() && events.isEmpty() -> Box(
+                    Modifier.fillMaxSize(), contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(error!!, color = MaterialTheme.colorScheme.error)
+                    }
                 }
+
                 selectedTab == 0 && filtered.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text("暂无通知", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                selectedTab == 1 && eventsLoaded && events.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("暂无动态", color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                selectedTab == 1 && eventsLoaded && events.isEmpty() -> Box(
+                    Modifier.fillMaxSize(), contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(horizontal = 32.dp)
+                    ) {
+                        Text("暂无动态", color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Medium)
+                        Text(
+                            "GitHub 事件流仅保留 30 天内、最多 300 条事件，且存在 30 秒 ~ 6 小时的同步延迟。\n" +
+                                "你的自有仓库近期暂无 star / fork / issue / PR 活动。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                    }
                 }
+
                 else -> androidx.compose.material3.pulltorefresh.PullToRefreshBox(
                     isRefreshing = isRefreshing,
                     onRefresh = {
                         isRefreshing = true
+                        repo.invalidateIssueStates()
+                        issueStateMap = emptyMap()
                         refreshKey++
                     },
                     state = pullState,
                     indicator = {
-                        KomiPullRefreshIndicator(
-                            state = pullState,
-                            isRefreshing = isRefreshing
-                        )
+                        KomiPullRefreshIndicator(state = pullState, isRefreshing = isRefreshing)
                     },
                     modifier = Modifier.fillMaxSize()
                 ) {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(top = 4.dp, bottom = 96.dp)
-                ) {
-                    if (selectedTab == 0) {
-                        items(filtered, key = { it.id }) { n ->
-                            NotificationCard(n, realState = issueStateMap[n.subject.url]) {
-                                // 1. 乐观消除未读蓝点 + 持久化并通知云端
-                                if (n.unread) {
-                                    notifications = notifications.map {
-                                        if (it.id == n.id) it.copy(unread = false) else it
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(top = 4.dp, bottom = 96.dp)
+                    ) {
+                        if (selectedTab == 0) {
+                            items(filtered, key = { it.id }) { n ->
+                                NotificationCard(n, realState = issueStateMap[n.subject.url]) {
+                                    // 1. 乐观消除未读蓝点 + 持久化覆盖表并通知云端
+                                    if (n.unread) {
+                                        notifications = notifications.map {
+                                            if (it.id == n.id) it.copy(unread = false) else it
+                                        }
+                                        scope.launch { repo.markNotificationAsRead(n) }
                                     }
-                                    scope.launch {
-                                        repo.markNotificationAsRead(n)
-                                    }
-                                }
-                                // 2. 软件内跳转（0ms 秒级推入详情页，完全零等待）
-                                when (n.subject.type) {
-                                    "Issue", "PullRequest" -> {
-                                        val parts = n.subject.url.removePrefix("https://api.github.com/repos/").split("/")
-                                        if (parts.size >= 4) {
-                                            val owner = parts[0]
-                                            val repoName = parts[1]
-                                            val num = parts[3].toIntOrNull()
-                                            if (num != null) {
+                                    // 2. 软件内 0ms 秒级推入详情页
+                                    when (n.subject.type) {
+                                        "Issue", "PullRequest" -> {
+                                            val ref = parseIssueRef(n.subject.url)
+                                            if (ref != null) {
                                                 val fastIssue = com.mygithub.lab.data.api.GitHubIssue(
-                                                    number = num,
+                                                    number = ref.number,
                                                     title = n.subject.title,
-                                                    state = issueStateMap[n.subject.url] ?: if (n.reason == "state_change") "closed" else "open",
-                                                    repository_url = "https://api.github.com/repos/$owner/$repoName",
+                                                    // 仅使用真实解析出的状态；未知则默认 open 但界面不显示状态胶囊
+                                                    state = issueStateMap[n.subject.url] ?: "open",
+                                                    repository_url = "https://api.github.com/repos/${ref.owner}/${ref.repo}",
                                                     created_at = n.updated_at
                                                 )
                                                 val fastRepo = com.mygithub.lab.data.api.GitHubRepo(
-                                                    name = repoName,
-                                                    full_name = "$owner/$repoName"
+                                                    name = ref.repo,
+                                                    full_name = "${ref.owner}/${ref.repo}"
                                                 )
                                                 onNavigateToIssue(fastRepo, fastIssue)
                                             }
                                         }
+                                        else -> {}
                                     }
-                                    else -> {}
                                 }
                             }
-                        }
-                    } else {
-                        items(events, key = { it.id }) { e ->
-                            EventCard(e)
+                        } else {
+                            item(key = "activity_summary") {
+                                ActivitySummaryCard(summary, events.size)
+                            }
+                            items(events, key = { it.id }) { e ->
+                                EventCard(e)
+                            }
                         }
                     }
                 }
-                }
             }
         }
+    }
+}
+
+/** 动态 Tab 顶部总量摘要（数值来自仓库对象，永远准确） */
+@Composable
+private fun ActivitySummaryCard(summary: OwnedRepoSummary?, eventCount: Int) {
+    KomiSurface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+    ) {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                "自有仓库概览",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.SemiBold
+            )
+            if (summary == null) {
+                Text(
+                    "统计加载中...",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    SummaryMetric("总 Stars", summary.totalStars.toString())
+                    SummaryMetric("总 Forks", summary.totalForks.toString())
+                    SummaryMetric("Open Issues", summary.totalOpenIssues.toString())
+                }
+                if (summary.starsDelta > 0 || summary.forksDelta > 0) {
+                    Text(
+                        "自上次查看：+${summary.starsDelta} Stars · +${summary.forksDelta} Forks",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Color(0xFF4CAF50),
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                Text(
+                    "共 ${summary.repoCount} 个自有仓库 · 近期事件 $eventCount 条（事件流有延迟）",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SummaryMetric(label: String, value: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun StatePill(text: String, color: Color) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(color.copy(alpha = 0.15f))
+            .padding(horizontal = 5.dp, vertical = 1.dp)
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelSmall,
+            color = color,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold
+        )
     }
 }
 
@@ -280,17 +412,17 @@ fun NotificationsScreen(
 private fun NotificationCard(n: GitHubNotification, realState: String? = null, onClick: () -> Unit) {
     val isIssue = n.subject.type == "Issue"
     val isPR = n.subject.type == "PullRequest"
-    // 优先采用实测查询的真实最新状态，其次使用启发式规则
-    val isClosed = if (realState != null) {
-        realState.equals("closed", ignoreCase = true)
-    } else {
-        n.reason == "state_change" ||
-            n.subject.title.contains("closed", ignoreCase = true) ||
-            n.subject.title.contains("close", ignoreCase = true)
+
+    // 仅使用真实解析出的状态，绝不用标题启发式猜测
+    val statePill: Pair<String, Color>? = when (realState) {
+        "open" -> "Open" to Color(0xFF4CAF50)
+        "closed" -> "Closed" to MaterialTheme.colorScheme.tertiary
+        "merged" -> "Merged" to Color(0xFF8250DF)
+        else -> null
     }
 
     val typeIcon = when (n.subject.type) {
-        "Issue" -> if (isClosed) "🟣" else "🟢"
+        "Issue" -> if (realState == "closed") "🟣" else "🟢"
         "PullRequest" -> "🔀"
         "Release" -> "🏷️"
         "Commit" -> "📦"
@@ -304,7 +436,7 @@ private fun NotificationCard(n: GitHubNotification, realState: String? = null, o
         "comment" -> "有新评论"
         "ci_activity" -> "CI 状态"
         "approval_requested" -> "请求批准"
-        "state_change" -> if (isClosed) "状态变更为 Closed" else "状态变更"
+        "state_change" -> "状态变更"
         "subscribed" -> "订阅更新"
         "team_mention" -> "团队提及"
         "security_alert" -> "安全警报"
@@ -350,39 +482,12 @@ private fun NotificationCard(n: GitHubNotification, realState: String? = null, o
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.Medium
                     )
-                    // Issue/PR 状态微型指示胶囊
-                    if (isIssue) {
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(
-                                    if (isClosed) MaterialTheme.colorScheme.tertiary.copy(alpha = 0.15f)
-                                    else androidx.compose.ui.graphics.Color(0xFF4CAF50).copy(alpha = 0.15f)
-                                )
-                                .padding(horizontal = 5.dp, vertical = 1.dp)
-                        ) {
-                            Text(
-                                text = if (isClosed) "Closed" else "Open",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (isClosed) MaterialTheme.colorScheme.tertiary else androidx.compose.ui.graphics.Color(0xFF4CAF50),
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    } else if (isPR) {
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
-                                .padding(horizontal = 5.dp, vertical = 1.dp)
-                        ) {
-                            Text(
-                                text = "PR",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                    if (isIssue || isPR) {
+                        if (statePill != null) {
+                            StatePill(statePill.first, statePill.second)
+                        } else {
+                            // 状态尚未解析出来：显示中性提示，不猜测
+                            StatePill("同步中", MaterialTheme.colorScheme.outline)
                         }
                     }
                     if (n.unread) {
@@ -409,14 +514,14 @@ private fun NotificationCard(n: GitHubNotification, realState: String? = null, o
         }
     }
 }
+
 @Composable
-private fun EventCard(e: com.mygithub.lab.data.api.GitHubEvent) {
+private fun EventCard(e: GitHubEvent) {
     val isIssueEvent = e.type == "IssuesEvent"
     val isClosed = e.payload.action == "closed"
     val isOpened = e.payload.action == "opened"
 
     val (icon, actionText) = when (e.type) {
-        "PushEvent" -> "📤" to "推送了提交"
         "WatchEvent" -> "⭐" to "Star 了仓库"
         "ForkEvent" -> "⑂" to "Fork 了仓库"
         "IssuesEvent" -> (if (isClosed) "🟣" else "🟢") to when (e.payload.action) {
@@ -425,10 +530,12 @@ private fun EventCard(e: com.mygithub.lab.data.api.GitHubEvent) {
             else -> "更新了 Issue"
         }
         "IssueCommentEvent" -> "💬" to "评论了 Issue"
-        "PullRequestEvent" -> "🔀" to when (e.payload.action) { "opened" -> "创建了 PR"; "closed" -> "关闭了 PR"; else -> "更新了 PR" }
-        "CreateEvent" -> "✨" to "创建了 ${e.payload.ref_type ?: "仓库"}"
+        "PullRequestEvent" -> "🔀" to when (e.payload.action) {
+            "opened" -> "创建了 PR"
+            "closed" -> "关闭了 PR"
+            else -> "更新了 PR"
+        }
         "ReleaseEvent" -> "🏷️" to "发布了新版本"
-        "DeleteEvent" -> "🗑️" to "删除了 ${e.payload.ref_type ?: "分支"}"
         else -> "📌" to e.type
     }
     KomiSurface(
@@ -460,23 +567,10 @@ private fun EventCard(e: com.mygithub.lab.data.api.GitHubEvent) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     if (isIssueEvent) {
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(
-                                    if (isClosed) MaterialTheme.colorScheme.tertiary.copy(alpha = 0.15f)
-                                    else androidx.compose.ui.graphics.Color(0xFF4CAF50).copy(alpha = 0.15f)
-                                )
-                                .padding(horizontal = 5.dp, vertical = 1.dp)
-                        ) {
-                            Text(
-                                text = if (isClosed) "Closed" else if (isOpened) "Open" else "Updated",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (isClosed) MaterialTheme.colorScheme.tertiary else androidx.compose.ui.graphics.Color(0xFF4CAF50),
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
+                        StatePill(
+                            text = if (isClosed) "Closed" else if (isOpened) "Open" else "Updated",
+                            color = if (isClosed) MaterialTheme.colorScheme.tertiary else Color(0xFF4CAF50)
+                        )
                     }
                 }
                 Text(

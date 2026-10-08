@@ -1,6 +1,8 @@
 package com.mygithub.lab.data.api
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
+import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
@@ -108,23 +110,6 @@ interface GitHubApi {
         @Query("per_page") perPage: Int = 50
     ): List<GitHubComment>
 
-    @GET("repos/{owner}/{repo}/stargazers")
-    @Headers("Accept: application/vnd.github.star+json")
-    suspend fun getRepoStargazers(
-        @Header("Authorization") token: String,
-        @Path("owner") owner: String,
-        @Path("repo") repo: String,
-        @Query("per_page") perPage: Int = 30
-    ): List<GitHubStargazer>
-
-    @GET("repos/{owner}/{repo}/forks")
-    suspend fun getRepoForks(
-        @Header("Authorization") token: String,
-        @Path("owner") owner: String,
-        @Path("repo") repo: String,
-        @Query("per_page") perPage: Int = 30
-    ): List<GitHubFork>
-
     @GET("user/starred")
     suspend fun getStarred(
         @Header("Authorization") token: String,
@@ -170,12 +155,28 @@ interface GitHubApi {
     ): retrofit2.Response<Unit>
 
     @GET("notifications")
-    suspend fun getNotifications(
+    suspend fun getNotificationsPage(
         @Header("Authorization") token: String,
         @Query("all") all: Boolean = false,
         @Query("participating") participating: Boolean = false,
-        @Query("per_page") perPage: Int = 50
-    ): List<GitHubNotification>
+        @Query("per_page") perPage: Int = 100,
+        @Query("page") page: Int = 1
+    ): Response<List<GitHubNotification>>
+
+    @GET("repos/{owner}/{repo}/events")
+    suspend fun getRepoEvents(
+        @Header("Authorization") token: String,
+        @Path("owner") owner: String,
+        @Path("repo") repo: String,
+        @Query("per_page") perPage: Int = 30,
+        @Query("page") page: Int = 1
+    ): List<GitHubEvent>
+
+    @POST("graphql")
+    suspend fun graphql(
+        @Header("Authorization") token: String,
+        @Body request: GraphQLRequest
+    ): GraphQLResponse
 
     @PATCH("notifications/threads/{thread_id}")
     suspend fun markThreadAsRead(
@@ -260,17 +261,20 @@ data class GitHubNotification(
 )
 
 @Serializable
-data class GitHubStargazer(
-    val starred_at: String = "",
-    val user: GitHubUser = GitHubUser()
+data class GraphQLRequest(
+    val query: String
 )
 
 @Serializable
-data class GitHubFork(
-    val id: Long = 0,
-    val full_name: String = "",
-    val owner: GitHubUser = GitHubUser(),
-    val created_at: String = ""
+data class GraphQLResponse(
+    val data: JsonElement? = null,
+    val errors: List<GraphQLError>? = null
+)
+
+@Serializable
+data class GraphQLError(
+    val message: String = "",
+    val path: List<String>? = null
 )
 
 @Serializable
