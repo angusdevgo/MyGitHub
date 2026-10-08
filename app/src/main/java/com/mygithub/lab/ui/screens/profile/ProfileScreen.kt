@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.HeartBroken
@@ -34,6 +35,11 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.CallSplit
+import androidx.compose.material.icons.filled.Adjust
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -55,6 +61,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -98,6 +106,7 @@ fun ProfileScreen(
     var showSecurity by remember { mutableStateOf(false) }
     var showRecentViews by remember { mutableStateOf(false) }
     var showStatPage by remember { mutableStateOf<String?>(null) } // "repos" | "followers" | "following"
+    var repoSummary by remember { mutableStateOf<com.mygithub.lab.data.model.OwnedRepoSummary?>(null) }
     var loading by remember { mutableStateOf(true) }
     var refreshKey by remember { mutableStateOf(0) }
     var isRefreshing by remember { mutableStateOf(false) }
@@ -135,6 +144,12 @@ fun ProfileScreen(
                     user = r.data
                     if (refreshKey > 0) listState.scrollToItem(0)
                 }
+                is GitHubRepository.Result.Error -> {}
+            }
+            // 自有仓库总量摘要（Stars / Forks / Open Issues）
+            if (refreshKey > 0) repository.invalidateOwnedReposCache()
+            when (val s = repository.getOwnedRepoSummary()) {
+                is GitHubRepository.Result.Success -> repoSummary = s.data
                 is GitHubRepository.Result.Error -> {}
             }
         } finally {
@@ -216,69 +231,182 @@ fun ProfileScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(16.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(20.dp))
                             .padding(20.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                        verticalArrangement = Arrangement.spacedBy(18.dp)
                     ) {
-                        // 头像 + 名字
+                        // ---------- 头像 + 名字 + 个性签名 ----------
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                            // 真实头像（Coil 加载，失败 fallback 首字母）
-                            if (!u.avatar_url.isNullOrBlank()) {
-                                AsyncImage(
-                                    model = coil3.request.ImageRequest.Builder(LocalContext.current)
-                                        .data(u.avatar_url)
-                                        .crossfade(false)
-                                        .memoryCacheKey(u.avatar_url)
-                                        .build(),
-                                    contentDescription = "头像",
-                                    modifier = Modifier
-                                        .size(56.dp)
-                                        .background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
-                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                                    clipToBounds = true
-                                )
-                            } else {
-                                Box(
-                                    modifier = Modifier
-                                        .size(56.dp)
-                                        .background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        u.login.take(1).uppercase(),
-                                        style = MaterialTheme.typography.headlineMedium,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        fontWeight = FontWeight.Bold
+                            // 头像：68dp + 渐变光环 + 主色描边
+                            Box(
+                                modifier = Modifier
+                                    .size(76.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        Brush.linearGradient(
+                                            listOf(
+                                                MaterialTheme.colorScheme.primary.copy(alpha = 0.55f),
+                                                MaterialTheme.colorScheme.tertiary.copy(alpha = 0.35f)
+                                            )
+                                        )
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (!u.avatar_url.isNullOrBlank()) {
+                                    AsyncImage(
+                                        model = coil3.request.ImageRequest.Builder(LocalContext.current)
+                                            .data(u.avatar_url)
+                                            .crossfade(true)
+                                            .memoryCacheKey(u.avatar_url)
+                                            .build(),
+                                        contentDescription = "头像",
+                                        modifier = Modifier
+                                            .size(68.dp)
+                                            .clip(CircleShape)
+                                            .border(
+                                                2.dp,
+                                                MaterialTheme.colorScheme.surfaceContainer,
+                                                CircleShape
+                                            ),
+                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
                                     )
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(68.dp)
+                                            .clip(CircleShape)
+                                            .background(MaterialTheme.colorScheme.primaryContainer),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            u.login.take(1).uppercase(),
+                                            style = MaterialTheme.typography.headlineMedium,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
                                 }
                             }
-                            Column {
+
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(3.dp)
+                            ) {
                                 Text(
-                                    u.name ?: u.login,
-                                    style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.Bold
+                                    u.name?.takeIf { it.isNotBlank() } ?: u.login,
+                                    style = MaterialTheme.typography.headlineSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                 )
                                 Text(
                                     "@${u.login}",
                                     style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Medium
                                 )
+                                u.bio?.takeIf { it.isNotBlank() }?.let { bio ->
+                                    Text(
+                                        bio,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 2,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                        modifier = Modifier.padding(top = 2.dp)
+                                    )
+                                }
                             }
                         }
 
-                        // 统计行（可点击）
+                        // ---------- 第一行：仓库 / 关注者 / 正在关注（可点击） ----------
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceEvenly
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            StatItem(value = "${u.public_repos}", label = "仓库", onClick = { onStatClick("repos") })
-                            Divider()
-                            StatItem(value = "${u.followers}", label = "关注者", onClick = { onStatClick("followers") })
-                            Divider()
-                            StatItem(value = "${u.following}", label = "正在关注", onClick = { onStatClick("following") })
+                            ProfileStatTile(
+                                modifier = Modifier.weight(1f),
+                                icon = Icons.Filled.Folder,
+                                accent = MaterialTheme.colorScheme.primary,
+                                value = formatCount(u.public_repos),
+                                label = "仓库",
+                                onClick = { onStatClick("repos") }
+                            )
+                            ProfileStatTile(
+                                modifier = Modifier.weight(1f),
+                                icon = Icons.Filled.People,
+                                accent = MaterialTheme.colorScheme.tertiary,
+                                value = formatCount(u.followers),
+                                label = "关注者",
+                                onClick = { onStatClick("followers") }
+                            )
+                            ProfileStatTile(
+                                modifier = Modifier.weight(1f),
+                                icon = Icons.Filled.PersonAdd,
+                                accent = MaterialTheme.colorScheme.secondary,
+                                value = formatCount(u.following),
+                                label = "正在关注",
+                                onClick = { onStatClick("following") }
+                            )
+                        }
+
+                        // ---------- 第二行：获赞 Stars / 被复刻 Forks / 公开议题 ----------
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            ProfileStatTile(
+                                modifier = Modifier.weight(1f),
+                                icon = Icons.Filled.Star,
+                                accent = Color(0xFFF4BE48),
+                                value = repoSummary?.let { formatCount(it.totalStars) } ?: "—",
+                                label = "获赞 Stars",
+                                highlight = true,
+                                onClick = { onStatClick("stars") }
+                            )
+                            ProfileStatTile(
+                                modifier = Modifier.weight(1f),
+                                icon = Icons.Filled.CallSplit,
+                                accent = Color(0xFF8250DF),
+                                value = repoSummary?.let { formatCount(it.totalForks) } ?: "—",
+                                label = "被复刻 Forks",
+                                highlight = true,
+                                onClick = { onStatClick("forks") }
+                            )
+                            ProfileStatTile(
+                                modifier = Modifier.weight(1f),
+                                icon = Icons.Filled.Adjust,
+                                accent = Color(0xFF4CAF50),
+                                value = repoSummary?.let { formatCount(it.totalOpenIssues) } ?: "—",
+                                label = "公开议题",
+                                highlight = true,
+                                onClick = { onStatClick("issues") }
+                            )
+                        }
+
+                        // ---------- 增量高光（自上次查看） ----------
+                        val starsDelta = repoSummary?.starsDelta ?: 0
+                        val forksDelta = repoSummary?.forksDelta ?: 0
+                        if (starsDelta > 0 || forksDelta > 0) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color(0xFF4CAF50).copy(alpha = 0.12f))
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text("📈", fontSize = 13.sp)
+                                Text(
+                                    "自上次查看：+$starsDelta Stars · +$forksDelta Forks",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = Color(0xFF4CAF50),
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
                         }
                     }
                 }
@@ -335,12 +463,22 @@ fun ProfileScreen(
                     onClick = { showRecentViews = true }
                 )
             }
+            item(key = "menu_2fa") {
+                val bound = totpSecret != null
+                MenuRow(
+                    icon = Icons.Filled.Security,
+                    iconColor = Color(0xFF4CAF50),
+                    title = "双重验证",
+                    subtitle = if (bound) "本地 TOTP 动态码 · 已绑定" else "本地 TOTP 动态码 · 未绑定",
+                    onClick = { showSecurity = true }
+                )
+            }
             item(key = "menu_settings") {
                 MenuRow(
                     icon = Icons.Filled.Settings,
                     iconColor = MaterialTheme.colorScheme.secondary,
                     title = "应用设置",
-                    subtitle = "外观主题 · 安全中心 · 账号 · 网络加速",
+                    subtitle = "外观主题 · 账号 · 网络加速",
                     onClick = { onNavigateToSettings() }
                 )
             }
@@ -432,20 +570,59 @@ fun ProfileScreen(
     }
 }
 
-@Composable
-private fun StatItem(value: String, label: String, onClick: () -> Unit = {}) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.clickable(onClick = onClick)
-    ) {
-        Text(value, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-        Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
+/** 大数格式化：1234 -> 1.2k，12345 -> 1.2w */
+private fun formatCount(count: Int): String = when {
+    count >= 10000 -> String.format("%.1fw", count / 10000f)
+    count >= 1000 -> String.format("%.1fk", count / 1000f)
+    else -> count.toString()
 }
 
+/**
+ * ProfileStatTile — 个人卡片统计小卡（图标 + 数值 + 标签）
+ * highlight = true 时使用强调色调色，用于 Stars / Forks / Issues 这类“成就”指标。
+ */
 @Composable
-private fun Divider() {
-    Box(modifier = Modifier.width(1.dp).height(32.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)))
+private fun ProfileStatTile(
+    icon: ImageVector,
+    accent: Color,
+    value: String,
+    label: String,
+    modifier: Modifier = Modifier,
+    highlight: Boolean = false,
+    onClick: () -> Unit = {}
+) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(
+                if (highlight) accent.copy(alpha = 0.10f)
+                else MaterialTheme.colorScheme.surfaceContainerHigh
+            )
+            .clickable(onClick = onClick)
+            .padding(vertical = 10.dp, horizontal = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = accent,
+            modifier = Modifier.size(16.dp)
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = if (highlight) accent else MaterialTheme.colorScheme.onSurface,
+            maxLines = 1
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1
+        )
+    }
 }
 
 @Composable
@@ -494,6 +671,7 @@ private fun StatListScreen(
     val repository = remember { GitHubRepository.get(context) }
     var repos by remember { mutableStateOf<List<GitHubRepo>>(emptyList()) }
     var users by remember { mutableStateOf<List<GitHubUser>>(emptyList()) }
+    var issues by remember { mutableStateOf<List<com.mygithub.lab.data.model.OwnedIssueItem>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var themeMode by remember { mutableStateOf(context.getSharedPreferences("mygithub_prefs", android.content.Context.MODE_PRIVATE).getString("theme_mode", "system") ?: "system") }
     var showThemeDialog by remember { mutableStateOf(false) }
@@ -504,16 +682,35 @@ private fun StatListScreen(
         "repos" -> "仓库"
         "followers" -> "关注者"
         "following" -> "正在关注"
+        "stars" -> "获赞 Stars"
+        "forks" -> "被复刻 Forks"
+        "issues" -> "公开议题"
         else -> ""
     }
 
     LaunchedEffect(type) {
         loading = true
         when (type) {
-            "repos" -> {
+            "repos", "stars", "forks" -> {
                 repository.myRepos().collect { result ->
                     when (result) {
-                        is GitHubRepository.Result.Success -> { repos = result.data; error = null }
+                        is GitHubRepository.Result.Success -> {
+                            repos = when (type) {
+                                "stars" -> result.data.sortedByDescending { it.stargazers_count }
+                                "forks" -> result.data.sortedByDescending { it.forks_count }
+                                else -> result.data
+                            }
+                            error = null
+                        }
+                        is GitHubRepository.Result.Error -> error = result.message
+                    }
+                    loading = false
+                }
+            }
+            "issues" -> {
+                repository.getAllOwnedIssues(state = "open").collect { result ->
+                    when (result) {
+                        is GitHubRepository.Result.Success -> { issues = result.data; error = null }
                         is GitHubRepository.Result.Error -> error = result.message
                     }
                     loading = false
@@ -558,7 +755,7 @@ private fun StatListScreen(
                 title = { Text(title, style = MaterialTheme.typography.titleLarge) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "返回", modifier = Modifier.size(24.dp))
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回", modifier = Modifier.size(24.dp))
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
@@ -577,7 +774,7 @@ private fun StatListScreen(
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                if (type == "repos") {
+                if (type == "repos" || type == "stars" || type == "forks") {
                     items(count = repos.size, key = { repos[it].id }) { index ->
                         val repo = repos[index]
                         com.mygithub.lab.ui.components.KomiRepoCard(
@@ -586,8 +783,74 @@ private fun StatListScreen(
                             description = repo.description.orEmpty(),
                             language = repo.language,
                             stars = repo.stargazers_count,
+                            forks = repo.forks_count,
+                            updatedAt = repo.pushed_at,
                             onClick = { onRepoClick(repo) }
                         )
+                    }
+                } else if (type == "issues") {
+                    // 自有仓库全部 Open 议题
+                    items(count = issues.size, key = { issues[it].cacheKey }) { index ->
+                        val item = issues[index]
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    val parts = item.repoFullName.split("/")
+                                    if (parts.size == 2) {
+                                        onRepoClick(
+                                            GitHubRepo(
+                                                name = parts[1],
+                                                full_name = item.repoFullName
+                                            )
+                                        )
+                                    }
+                                }
+                                .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(10.dp))
+                                .padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(
+                                text = if (item.isPr) "🔀" else "🟢",
+                                style = MaterialTheme.typography.titleSmall
+                            )
+                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = item.repoFullName,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    Text(
+                                        text = "#${item.number}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Text(
+                                    text = item.title.ifBlank { "(无标题)" },
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 2
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    if (item.comments > 0) {
+                                        Text(
+                                            "💬 ${item.comments}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    Text(
+                                        text = com.mygithub.lab.ui.components.relativeTimeFromIso(item.updatedAt),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                    )
+                                }
+                            }
+                        }
                     }
                 } else {
                     // followers / following 用户列表

@@ -780,6 +780,17 @@ class GitHubRepository(context: Context) {
         api.unstarRepo("Bearer $token", owner, repo).isSuccessful
     } catch (e: Exception) { false }
 
+    suspend fun forkRepo(owner: String, repo: String, customName: String? = null, defaultBranchOnly: Boolean = false): Result<GitHubRepo> = try {
+        val req = com.mygithub.lab.data.api.CreateForkRequest(
+            name = customName?.takeIf { it.isNotBlank() },
+            default_branch_only = defaultBranchOnly
+        )
+        val created = api.forkRepo("Bearer $token", owner, repo, req)
+        Result.Success(created)
+    } catch (e: Exception) {
+        Result.Error(friendlyError(e, "Fork 失败"))
+    }
+
     // ===== Star 标签（Room 本地） =====
 
     suspend fun addTag(repoFullName: String, tag: String) =
@@ -990,32 +1001,39 @@ fun buildRepoDetailHtml(repo: GitHubRepo, readmeHtml: String?, isStarred: Boolea
     <style>
     * { box-sizing: border-box; }
     html, body { overflow-x: hidden; max-width: 100vw; }
-    body { font-family: -apple-system, sans-serif; font-size: 14px; line-height: 1.6; color: ${if (dark) "#E3E2E6" else "#1A1C1E"}; background: ${if (dark) "#111316" else "#FBFBFD"}; margin: 0; padding: 0; overflow-x: hidden; max-width: 100vw; }
-    .header { padding: 16px 20px; }
-    .owner { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-    .avatar { width: 24px; height: 24px; border-radius: 50%; background: $accent; color: $bg; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: bold; }
-    .owner-name { color: $textVariant; font-size: 14px; }
-    .repo-name { font-size: 24px; font-weight: bold; color: $text; margin-bottom: 8px; }
-    .desc { color: $textVariant; font-size: 15px; line-height: 22px; margin-bottom: 12px; }
-    .stats { display: flex; gap: 20px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
-    .stat { display: flex; align-items: center; gap: 5px; font-size: 14px; }
-    .stat-icon { font-size: 14px; }
-    .star { color: $accent; font-weight: 500; }
-    .fork { color: $textVariant; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 14px; line-height: 1.6; color: $text; background: $bg; margin: 0; padding: 0; overflow-x: hidden; max-width: 100vw; }
+    .header { padding: 18px 20px 14px; }
+    .owner { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+    .avatar { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
+    .avatar-fallback { width: 28px; height: 28px; border-radius: 50%; background: linear-gradient(135deg, $accent, #7C4DFF); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: bold; }
+    .owner-name { color: $textVariant; font-size: 14px; font-weight: 500; }
+    .repo-name { font-size: 26px; font-weight: 800; color: $text; margin-bottom: 8px; letter-spacing: -0.3px; word-break: break-word; }
+    .desc { color: $textVariant; font-size: 14px; line-height: 22px; margin-bottom: 14px; }
+    .stats { display: flex; gap: 10px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+    .stat-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 500; padding: 4px 10px; border-radius: 20px; background: $surfaceBg; color: $text; border: 1px solid rgba(128,128,128,0.15); }
+    .stat-chip.star { color: #F4BE48; font-weight: 600; }
+    .stat-chip.fork { color: #8250DF; font-weight: 600; }
+    .stat-icon { font-size: 13px; }
     .lang-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
-    .lang-text { color: $textVariant; font-size: 14px; }
-    .actions { display: flex; gap: 10px; margin-bottom: 12px; }
-    .btn { flex: 1; padding: 8px 12px; border: 1px solid $border; border-radius: 8px; text-align: center; color: $text; font-size: 14px; text-decoration: none; background: transparent; }
-    .btn:active { background: $surfaceBg; }
-    .topics { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
-    .topic { background: $surfaceBg; color: $accent; font-size: 11px; padding: 3px 8px; border-radius: 12px; }
-    .divider { height: 1px; background: $border; margin: 0 20px; opacity: 0.4; }
-    .action-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 20px; }
-    .action-left { display: flex; align-items: center; gap: 14px; }
-    .action-icon-box { width: 28px; height: 28px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 14px; }
-    .action-title { font-size: 15px; font-weight: 500; color: $text; }
-    .action-right { display: flex; align-items: center; gap: 6px; color: $textVariant; font-size: 14px; }
-    .readme-title { padding: 10px 20px; font-size: 16px; font-weight: 600; color: $text; }
+    .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+    .btn { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 14px; border-radius: 12px; text-align: center; font-size: 14px; font-weight: 600; text-decoration: none; transition: transform 0.1s, opacity 0.1s; -webkit-tap-highlight-color: transparent; }
+    .btn:active { transform: scale(0.97); opacity: 0.85; }
+    .btn-star { background: $surfaceBg; color: $text; border: 1px solid rgba(128,128,128,0.25); }
+    .btn-star.starred { background: rgba(244,190,72,0.15); color: #F4BE48; border-color: rgba(244,190,72,0.5); }
+    .btn-fork { background: $surfaceBg; color: $text; border: 1px solid rgba(128,128,128,0.25); }
+    .topics { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+    .topic { background: rgba(182,196,255,0.12); color: $accent; font-size: 11px; font-weight: 500; padding: 3px 10px; border-radius: 12px; }
+    .divider { height: 1px; background: $border; margin: 0 20px; opacity: 0.35; }
+    .action-card { margin: 12px 20px; background: $surfaceBg; border-radius: 14px; overflow: hidden; border: 1px solid rgba(128,128,128,0.12); }
+    .action-row { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; -webkit-tap-highlight-color: transparent; cursor: pointer; }
+    .action-row:active { background: rgba(128,128,128,0.08); }
+    .action-row + .action-row { border-top: 1px solid rgba(128,128,128,0.12); }
+    .action-left { display: flex; align-items: center; gap: 12px; }
+    .action-icon-box { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 15px; }
+    .action-title { font-size: 14px; font-weight: 600; color: $text; }
+    .action-right { display: flex; align-items: center; gap: 6px; color: $textVariant; font-size: 13px; font-weight: 500; }
+    .readme-title { padding: 16px 20px 8px; font-size: 16px; font-weight: 700; color: $text; display: flex; align-items: center; gap: 8px; }
+    .readme-title::before { content: "📖"; font-size: 16px; }
     h1, h2, h3, h4, h5, h6 { margin-top: 24px; margin-bottom: 16px; font-weight: 600; }
     h1 { font-size: 2em; padding-bottom: .3em; border-bottom: 1px solid $border; }
     h2 { font-size: 1.5em; padding-bottom: .3em; border-bottom: 1px solid $border; }
@@ -1043,41 +1061,47 @@ fun buildRepoDetailHtml(repo: GitHubRepo, readmeHtml: String?, isStarred: Boolea
         
     } ?: "$textVariant"
 
+    val avatarHtml = if (!repo.owner.avatar_url.isNullOrBlank()) {
+        "<img class=\"avatar\" src=\"${repo.owner.avatar_url}\" onerror=\"this.outerHTML='<div class=\\'avatar-fallback\\'>${repo.ownerLogin.take(1).uppercase()}</div>'\" />"
+    } else {
+        "<div class=\"avatar-fallback\">${repo.ownerLogin.take(1).uppercase()}</div>"
+    }
+
     val header = """
     <div class="header">
         <div class="owner">
-            <div class="avatar">${repo.ownerLogin.take(1).uppercase()}</div>
+            $avatarHtml
             <span class="owner-name">${repo.ownerLogin}</span>
         </div>
         <div class="repo-name">${repo.name}</div>
         ${if (!repo.description.isNullOrBlank()) "<div class=\"desc\">${repo.description}</div>" else ""}
         <div class="stats">
-            <div class="stat star"><span class="stat-icon">★</span> ${formatStarsCompat(repo.stargazers_count)} 星标</div>
-            <div class="stat fork"><span class="stat-icon">⑂</span> ${repo.forks_count} 复刻</div>
-            ${if (repo.language != null) "<div class=\"stat\"><span class=\"lang-dot\" style=\"background:$langColorHex\"></span><span class=\"lang-text\">${repo.language}</span></div>" else ""}
+            <span class="stat-chip star" id="star-stat"><span class="stat-icon">★</span> <span id="star-count">${formatStarsCompat(repo.stargazers_count)}</span></span>
+            <span class="stat-chip fork"><span class="stat-icon">⑂</span> ${formatStarsCompat(repo.forks_count)}</span>
+            ${if (repo.language != null) "<span class=\"stat-chip\"><span class=\"lang-dot\" style=\"background:$langColorHex\"></span><span>${repo.language}</span></span>" else ""}
         </div>
         <div class="actions">
-            <a class="btn" href="mygithub://star">★ ${if (isStarred) "已标星" else "标星"}</a>
-            <a class="btn" href="${repo.html_url}/fork">⑂ Fork</a>
+            <a class="btn btn-star ${if (isStarred) "starred" else ""}" id="star-btn" href="mygithub://star">★ <span id="star-label">${if (isStarred) "已标星" else "标星"}</span></a>
+            <a class="btn btn-fork" href="mygithub://fork">⑂ Fork</a>
         </div>
         ${if (repo.topics.isNotEmpty()) "<div class=\"topics\">" + repo.topics.joinToString("") { "<span class=\"topic\">#$it</span>" } + "</div>" else ""}
     </div>
-    <div class="divider"></div>
-    <div class="action-row" onclick="window.location.href='mygithub://issues'">
-        <div class="action-left">
-            <div class="action-icon-box" style="background:rgba(76,175,80,0.15);color:#4CAF50">⊙</div>
-            <span class="action-title">议题 (Issues)</span>
+    <div class="action-card">
+        <div class="action-row" onclick="window.location.href='mygithub://issues'">
+            <div class="action-left">
+                <div class="action-icon-box" style="background:rgba(76,175,80,0.15);color:#4CAF50">⊙</div>
+                <span class="action-title">议题 (Issues)</span>
+            </div>
+            <div class="action-right">${repo.open_issues_count} ›</div>
         </div>
-        <div class="action-right">${repo.open_issues_count} ›</div>
-    </div>
-    <div class="action-row" onclick="window.location.href='mygithub://releases'">
-        <div class="action-left">
-            <div class="action-icon-box" style="background:rgba(33,150,243,0.15);color:#2196F3">📦</div>
-            <span class="action-title">版本发布 (Releases)</span>
+        <div class="action-row" onclick="window.location.href='mygithub://releases'">
+            <div class="action-left">
+                <div class="action-icon-box" style="background:rgba(33,150,243,0.15);color:#2196F3">📦</div>
+                <span class="action-title">版本发布 (Releases)</span>
+            </div>
+            <div class="action-right">${if (releasesCount > 0) "${latestTag ?: releasesCount} ›" else "›"}</div>
         </div>
-        <div class="action-right">›</div>
     </div>
-    <div class="divider"></div>
     <div class="readme-title">README.md</div>
     """.trimIndent()
 

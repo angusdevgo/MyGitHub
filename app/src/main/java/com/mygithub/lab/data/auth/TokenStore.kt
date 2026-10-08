@@ -13,24 +13,32 @@ object TokenStore {
     private const val KEY_TOKEN = "github_token"
     private const val KEY_LOGIN_TYPE = "login_type" // device_flow | pat
 
+    @Volatile private var cached: SharedPreferences? = null
+
     private fun prefs(context: Context): SharedPreferences {
-        val masterKey = MasterKey.Builder(context)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .build()
-        return EncryptedSharedPreferences.create(
-            context,
-            PREFS,
-            masterKey,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-        )
+        cached?.let { return it }
+        synchronized(this) {
+            cached?.let { return it }
+            val masterKey = MasterKey.Builder(context)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
+            val p = EncryptedSharedPreferences.create(
+                context,
+                PREFS,
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            )
+            cached = p
+            return p
+        }
     }
 
     fun saveToken(context: Context, token: String, type: String) {
         prefs(context).edit()
             .putString(KEY_TOKEN, token)
             .putString(KEY_LOGIN_TYPE, type)
-            .apply()
+            .commit()
     }
 
     fun getToken(context: Context): String? =
@@ -43,6 +51,6 @@ object TokenStore {
         !getToken(context).isNullOrBlank()
 
     fun clear(context: Context) {
-        prefs(context).edit().clear().apply()
+        prefs(context).edit().clear().commit()
     }
 }

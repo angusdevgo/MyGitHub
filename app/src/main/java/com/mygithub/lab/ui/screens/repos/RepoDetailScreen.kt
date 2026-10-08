@@ -11,10 +11,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -24,14 +26,19 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -75,6 +82,15 @@ fun RepoDetailScreen(
     var issues by remember { mutableStateOf<List<GitHubIssue>>(emptyList()) }
     var showReleasesSheet by remember { mutableStateOf(false) }
     var showIssuesSheet by remember { mutableStateOf(false) }
+
+    // Fork 对话框状态
+    var showForkDialog by remember { mutableStateOf(false) }
+    var forkRepoName by remember { mutableStateOf(repo.name) }
+    var forkDefaultBranchOnly by remember { mutableStateOf(true) }
+    var forkLoading by remember { mutableStateOf(false) }
+
+    // 局部即时维护的 star 计数与星标状态（乐观更新，零卡顿）
+    var liveStarCount by remember(repo.stargazers_count) { mutableStateOf(repo.stargazers_count) }
 
     LaunchedEffect(repo.full_name, isDark) {
         loading = true
@@ -146,16 +162,58 @@ fun RepoDetailScreen(
                                     return when {
                                         // 内部操作
                                         rawUrl == "mygithub://star" -> {
+                                            // 1. 立即执行乐观更新：无需等网络返回，DOM 秒级切换高亮与计数值
+                                            val targetStarred = !isStarred
+                                            isStarred = targetStarred
+                                            if (targetStarred) liveStarCount += 1 else liveStarCount = (liveStarCount - 1).coerceAtLeast(0)
+                                            val jsAction = if (targetStarred) {
+                                                """
+                                                (function() {
+                                                    var b = document.getElementById('star-btn');
+                                                    if (b) { b.classList.add('starred'); }
+                                                    var l = document.getElementById('star-label');
+                                                    if (l) { l.innerText = '已标星'; }
+                                                    var c = document.getElementById('star-count');
+                                                    if (c) { c.innerText = '$liveStarCount'; }
+                                                })();
+                                                """.trimIndent()
+                                            } else {
+                                                """
+                                                (function() {
+                                                    var b = document.getElementById('star-btn');
+                                                    if (b) { b.classList.remove('starred'); }
+                                                    var l = document.getElementById('star-label');
+                                                    if (l) { l.innerText = '标星'; }
+                                                    var c = document.getElementById('star-count');
+                                                    if (c) { c.innerText = '$liveStarCount'; }
+                                                })();
+                                                """.trimIndent()
+                                            }
+                                            view?.evaluateJavascript(jsAction, null)
+
+                                            // 2. 后台异步提交网络请求，失败则静默回滚
                                             scope.launch {
-                                                val success = if (isStarred) repository.unstarRepo(owner, repoName)
-                                                else repository.starRepo(owner, repoName)
-                                                if (success) {
-                                                    isStarred = !isStarred
-                                                    val readme = repository.getReadme(owner, repoName, dark = isDark)
-                                                    pageHtml = buildRepoDetailHtml(repo, readme, isStarred, releases.size, releases.firstOrNull()?.tag_name, dark = isDark)
-                                                    view?.post { view?.loadDataWithBaseURL("https://github.com/", pageHtml!!, "text/html", "utf-8", null) }
+                                                val success = if (targetStarred) repository.starRepo(owner, repoName)
+                                                else repository.unstarRepo(owner, repoName)
+                                                if (!success) {
+                                                    // 回滚
+                                                    isStarred = !targetStarred
+                                                    if (isStarred) liveStarCount += 1 else liveStarCount = (liveStarCount - 1).coerceAtLeast(0)
+                                                    val rollbackJs = if (isStarred) {
+                                                        "document.getElementById('star-btn')?.classList.add('starred');document.getElementById('star-label')&&(document.getElementById('star-label').innerText='已标星');"
+                                                    } else {
+                                                        "document.getElementById('star-btn')?.classList.remove('starred');document.getElementById('star-label')&&(document.getElementById('star-label').innerText='标星');"
+                                                    }
+                                                    view?.evaluateJavascript(rollbackJs, null)
+                                                    android.widget.Toast.makeText(context, "操作失败，已还原", android.widget.Toast.LENGTH_SHORT).show()
                                                 }
                                             }
+                                            true
+                                        }
+                                        rawUrl == "mygithub://fork" -> {
+                                            forkRepoName = repo.name
+                                            forkDefaultBranchOnly = true
+                                            showForkDialog = true
                                             true
                                         }
                                         rawUrl == "mygithub://issues" -> { showIssuesSheet = true; true }
@@ -203,6 +261,113 @@ fun RepoDetailScreen(
         ModalBottomSheet(onDismissRequest = { showIssuesSheet = false }, sheetState = rememberModalBottomSheetState()) {
             IssuesSheetContent(issues = issues, onIssueClick = { showIssuesSheet = false; onIssueClick(it) })
         }
+    }
+
+    // Fork 对话框（原生客户端支持，如同 Web 一样设定仓库名与主分支限制）
+    if (showForkDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!forkLoading) showForkDialog = false },
+            title = {
+                Text(
+                    text = "复刻仓库 (Fork)",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                )
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Text(
+                        text = "将 ${repo.full_name} 复制到您的个人 GitHub 账号下作为新仓库。",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    OutlinedTextField(
+                        value = forkRepoName,
+                        onValueChange = { forkRepoName = it.trim() },
+                        label = { Text("仓库名称") },
+                        placeholder = { Text(repo.name) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { forkDefaultBranchOnly = !forkDefaultBranchOnly }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = forkDefaultBranchOnly,
+                            onCheckedChange = { forkDefaultBranchOnly = it }
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = "仅复制默认分支 (${repo.default_branch.ifBlank { "main" }})",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (forkRepoName.isBlank()) return@Button
+                        forkLoading = true
+                        scope.launch {
+                            val res = repository.forkRepo(
+                                owner = repo.ownerLogin,
+                                repo = repo.name,
+                                customName = forkRepoName,
+                                defaultBranchOnly = forkDefaultBranchOnly
+                            )
+                            forkLoading = false
+                            showForkDialog = false
+                            when (res) {
+                                is GitHubRepository.Result.Success -> {
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "已成功发起 Fork: ${res.data.full_name}",
+                                        android.widget.Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                                is GitHubRepository.Result.Error -> {
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        res.message,
+                                        android.widget.Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                            }
+                        }
+                    },
+                    enabled = !forkLoading && forkRepoName.isNotBlank()
+                ) {
+                    if (forkLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    Text("创建 Fork")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showForkDialog = false },
+                    enabled = !forkLoading
+                ) {
+                    Text("取消")
+                }
+            }
+        )
     }
 }
 

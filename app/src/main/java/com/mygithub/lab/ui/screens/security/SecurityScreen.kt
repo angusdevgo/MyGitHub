@@ -60,7 +60,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * 安全中心：GitHub 2FA 验证器平替
+ * 双重验证：GitHub 2FA 验证器平替
  * - 扫码导入（GitHub 2FA 设置页二维码）
  * - 手动粘贴（otpauth URI / 纯 Base32 setup key）
  * - 实时 6 位动态码 + 点码即复制
@@ -108,7 +108,7 @@ fun SecurityScreen(onBack: () -> Unit) {
         snackbarHost = { SnackbarHost(snackbarHost) },
         topBar = {
             TopAppBar(
-                title = { Text("安全中心", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) },
+                title = { Text("双重验证", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")

@@ -173,6 +173,14 @@ interface GitHubApi {
         @Query("per_page") perPage: Int = 30
     ): List<GitHubEvent>
 
+    @POST("repos/{owner}/{repo}/forks")
+    suspend fun forkRepo(
+        @Header("Authorization") token: String,
+        @Path("owner") owner: String,
+        @Path("repo") repo: String,
+        @Body body: CreateForkRequest = CreateForkRequest()
+    ): GitHubRepo
+
     @PUT("user/starred/{owner}/{repo}")
     suspend fun starRepo(
         @Header("Authorization") token: String,
@@ -233,6 +241,12 @@ data class GitHubUser(
 )
 
 @Serializable
+data class CreateForkRequest(
+    val name: String? = null,
+    val default_branch_only: Boolean = false
+)
+
+@Serializable
 data class CreateCommentRequest(val body: String)
 
 @Serializable
@@ -289,7 +303,8 @@ data class GitHubRepo(
     val open_issues_count: Int = 0,
     val pushed_at: String? = null,
     val html_url: String = "",
-    val topics: List<String> = emptyList()
+    val topics: List<String> = emptyList(),
+    val default_branch: String = "main"
 ) {
     val ownerLogin: String get() = owner.login
 }

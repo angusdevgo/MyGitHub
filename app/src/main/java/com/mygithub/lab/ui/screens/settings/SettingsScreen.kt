@@ -33,7 +33,6 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Router
-import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -76,7 +75,6 @@ import kotlinx.coroutines.launch
 fun SettingsScreen(
     onBack: () -> Unit,
     onOpenThemeDialog: () -> Unit,
-    onOpenSecurity: () -> Unit,
     onOpenAccount: () -> Unit,
     themeLabel: String,
     loginTypeLabel: String
@@ -142,14 +140,6 @@ fun SettingsScreen(
                     title = "外观主题",
                     subtitle = themeLabel,
                     onClick = onOpenThemeDialog
-                )
-                SettingsDivider()
-                SettingsItem(
-                    icon = Icons.Filled.Security,
-                    iconColor = Color(0xFF4CAF50),
-                    title = "安全中心",
-                    subtitle = "本地 TOTP 动态码 · GitHub 二次验证",
-                    onClick = onOpenSecurity
                 )
                 SettingsDivider()
                 SettingsItem(

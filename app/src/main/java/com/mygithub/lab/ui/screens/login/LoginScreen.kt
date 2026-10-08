@@ -3,8 +3,6 @@ package com.mygithub.lab.ui.screens.login
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
-import android.net.Uri
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -28,7 +26,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
@@ -47,6 +44,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -56,7 +54,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -67,11 +64,22 @@ import com.mygithub.lab.data.auth.DeviceFlowAuth
 import com.mygithub.lab.data.auth.TokenStore
 import com.mygithub.lab.security.totp.TotpEngine
 import com.mygithub.lab.security.totp.TotpStore
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 /**
- * 极客暗夜风格登录页
+ * 登录页
+ *
+ * 采用 GitHub OAuth Device Flow (RFC 8628)：
+ *   1. App 向 GitHub 申请设备码，拿到 8 位验证码（如 WDJB-MJHT）
+ *   2. 验证码自动复制到剪贴板，并尝试打开浏览器授权页
+ *   3. 用户在网页输入验证码并点 Authorize，App 自动完成登录
+ *
+ * 备选：PAT 令牌登录（零配置，国内网络更稳）
  */
+private const val GITHUB_CLIENT_ID = "Ov23liqsr2H35Mscqfii"
+private const val DEVICE_AUTH_URL = "https://github.com/login/device"
+
 @Composable
 fun LoginScreen(
     onLoginSuccess: () -> Unit
@@ -86,20 +94,49 @@ fun LoginScreen(
     var showPatInput by remember { mutableStateOf(false) }
     var patText by remember { mutableStateOf("") }
 
-    val auth = remember {
-        DeviceFlowAuth(clientId = "Ov23liqsr2H35Mscqfii")
+    // 轮询任务句柄：支持用户主动取消
+    var pollJob by remember { mutableStateOf<Job?>(null) }
+    // 验证码剩余有效秒数（用于展示与本地超时）
+    var remainSeconds by remember { mutableStateOf(0) }
+    val expiresInSeconds = 900
+
+    /** 取消登录并重置界面（供取消按钮与超时使用） */
+    fun cancelLogin(message: String? = null) {
+        pollJob?.cancel()
+        pollJob = null
+        loading = false
+        userCode = null
+        status = null
+        remainSeconds = 0
+        if (message != null) error = message
     }
+
+    val auth = remember { DeviceFlowAuth(clientId = GITHUB_CLIENT_ID) }
 
     var totpSecret by remember { mutableStateOf(TotpStore.getSecret(context)) }
     var totpTick by remember { androidx.compose.runtime.mutableLongStateOf(System.currentTimeMillis()) }
-
-    androidx.compose.runtime.LaunchedEffect(totpSecret) {
+    LaunchedEffect(totpSecret) {
         if (totpSecret != null) {
             while (true) {
                 totpTick = System.currentTimeMillis()
                 kotlinx.coroutines.delay(1000)
             }
         }
+    }
+
+    // 验证码有效期倒计时（同时作为本地超时兜底）
+    LaunchedEffect(userCode) {
+        if (userCode == null) return@LaunchedEffect
+        remainSeconds = expiresInSeconds
+        while (remainSeconds > 0 && userCode != null) {
+            kotlinx.coroutines.delay(1000)
+            remainSeconds -= 1
+        }
+    }
+
+    // 页面离开时清理轮询，避免泄漏
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose { pollJob?.cancel() }
     }
 
     fun copyToClipboard(text: String, toastMsg: String = "已复制") {
@@ -120,7 +157,7 @@ fun LoginScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            // ===== 顶部 Logo 徽标 =====
+            // ===== 顶部 Logo =====
             Box(
                 modifier = Modifier
                     .size(80.dp)
@@ -133,11 +170,7 @@ fun LoginScreen(
                             )
                         )
                     )
-                    .border(
-                        1.5.dp,
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
-                        CircleShape
-                    ),
+                    .border(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -148,19 +181,22 @@ fun LoginScreen(
                 )
             }
 
-            Spacer(Modifier.height(16.dp))
-
+            Spacer(Modifier.height(18.dp))
             Text(
                 text = "MyGitHub",
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.ExtraBold,
-                letterSpacing = 0.5.sp,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground
             )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "纯客户端 · 零服务器 · 无需注册",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(28.dp))
 
-            Spacer(Modifier.height(36.dp))
-
-            // ===== 错误提示卡片 =====
+            // ===== 错误提示 =====
             error?.let { err ->
                 Box(
                     modifier = Modifier
@@ -181,7 +217,7 @@ fun LoginScreen(
                 Spacer(Modifier.height(20.dp))
             }
 
-            // ===== 状态加载动画 =====
+            // ===== 加载动画 =====
             if (loading && userCode == null) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(40.dp),
@@ -197,7 +233,7 @@ fun LoginScreen(
                 Spacer(Modifier.height(24.dp))
             }
 
-            // ===== 核心卡片：Device Flow 授权验证码展示 =====
+            // ===== 设备授权验证码卡片 =====
             userCode?.let { code ->
                 Box(
                     modifier = Modifier
@@ -248,7 +284,7 @@ fun LoginScreen(
                                     color = MaterialTheme.colorScheme.primary
                                 )
                                 Text(
-                                    text = "点此快速复制验证码",
+                                    text = "已自动复制，点此可再次复制",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                                     modifier = Modifier.padding(top = 2.dp)
@@ -256,31 +292,25 @@ fun LoginScreen(
                             }
                         }
 
-                        // 引导操作区
+                        // 操作区
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             OutlinedButton(
-                                onClick = { copyToClipboard("https://github.com/login/device", "已复制授权网址") },
+                                onClick = { copyToClipboard(code, "验证码已复制: $code") },
                                 modifier = Modifier.weight(1f),
                                 shape = RoundedCornerShape(12.dp)
                             ) {
                                 Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.width(6.dp))
-                                Text("复制网址", fontSize = 13.sp)
+                                Text("复制验证码", fontSize = 13.sp)
                             }
 
                             Button(
                                 onClick = {
-                                    copyToClipboard(code, "已复制验证码，准备在浏览器中输入")
-                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/login/device"))
-                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    try {
-                                        context.startActivity(intent)
-                                    } catch (_: Exception) {
-                                        copyToClipboard("https://github.com/login/device", "已复制网址，请手动打开")
-                                    }
+                                    copyToClipboard(code, "验证码已复制，请在浏览器中粘贴")
+                                    com.mygithub.lab.ui.components.openUrl(context, DEVICE_AUTH_URL)
                                 },
                                 modifier = Modifier.weight(1f),
                                 shape = RoundedCornerShape(12.dp),
@@ -290,11 +320,44 @@ fun LoginScreen(
                             ) {
                                 Icon(Icons.Filled.OpenInBrowser, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.width(6.dp))
-                                Text("打开网页", fontSize = 13.sp)
+                                Text("打开授权页", fontSize = 13.sp)
                             }
                         }
 
-                        // 轮询状态呼吸提示
+                        // 手动兜底指引（针对部分 ROM 无法自动唤起浏览器的情况）
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+                                .padding(10.dp)
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(
+                                    text = "浏览器没自动打开？手动操作：",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = "1. 自行打开任意浏览器\n2. 访问 github.com/login/device\n3. 粘贴验证码 $code 并点击 Authorize",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    lineHeight = 16.sp
+                                )
+                                OutlinedButton(
+                                    onClick = { copyToClipboard(DEVICE_AUTH_URL, "授权网址已复制") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(13.dp))
+                                    Spacer(Modifier.width(5.dp))
+                                    Text("复制授权网址", fontSize = 12.sp)
+                                }
+                            }
+                        }
+
+                        // 轮询状态 + 倒计时 + 取消入口
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -310,47 +373,76 @@ fun LoginScreen(
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                            if (remainSeconds > 0) {
+                                Text(
+                                    text = "剩余 ${remainSeconds / 60}:${(remainSeconds % 60).toString().padStart(2, '0')}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.outline
+                                )
+                            }
+                        }
+
+                        // 取消登录：随时可退回选择其他登录方式
+                        TextButton(
+                            onClick = { cancelLogin("已取消本次登录") },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("取消登录", fontSize = 13.sp, color = MaterialTheme.colorScheme.error)
                         }
                     }
                 }
                 Spacer(Modifier.height(24.dp))
             }
 
-            // ===== 主交互面板（普通登录 vs PAT 切换） =====
+            // ===== 主交互面板 =====
             AnimatedVisibility(visible = !showPatInput, enter = fadeIn(), exit = fadeOut()) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                     if (userCode == null && !loading) {
                         Button(
                             onClick = {
                                 loading = true
                                 error = null
                                 status = null
-                                scope.launch {
+                                pollJob?.cancel()
+                                pollJob = scope.launch {
                                     try {
                                         val resp = auth.requestCode()
                                         userCode = resp.user_code
                                         status = "等待网页授权确认..."
-                                        
-                                        // 启动轮询
-                                        when (val r = auth.pollForToken(resp.device_code, resp.interval, deviceCodeResponse = resp)) {
+                                        // 自动复制验证码并尝试打开授权页
+                                        copyToClipboard(resp.user_code, "验证码 ${resp.user_code} 已复制")
+                                        com.mygithub.lab.ui.components.openUrl(context, resp.verification_uri)
+
+                                        when (val r = auth.pollForToken(
+                                            deviceCode = resp.device_code,
+                                            intervalSeconds = resp.interval,
+                                            expiresInSeconds = resp.expires_in
+                                        )) {
                                             is DeviceFlowAuth.AuthResult.Success -> {
                                                 TokenStore.saveToken(context, r.token, "device_flow")
+                                                loading = false
                                                 onLoginSuccess()
                                             }
                                             is DeviceFlowAuth.AuthResult.Error -> {
-                                                error = r.message
-                                                userCode = null
-                                                status = null
+                                                cancelLogin(r.message)
                                             }
-                                            is DeviceFlowAuth.AuthResult.Pending -> status = r.message
+                                            is DeviceFlowAuth.AuthResult.Cancelled -> {
+                                                cancelLogin()
+                                            }
                                         }
+                                    } catch (e: kotlinx.coroutines.CancellationException) {
+                                        // 用户取消：静默清理，不当作错误
+                                        loading = false
+                                        userCode = null
+                                        status = null
                                     } catch (e: Exception) {
                                         val msg = e.message.orEmpty()
-                                        error = if (msg.contains("github.com") && (msg.contains("connect") || msg.contains("timeout"))) {
-                                            "无法直连 GitHub，请检查网络或开启代理后重试"
+                                        val hint = if (msg.contains("github.com") && (msg.contains("connect") || msg.contains("timeout"))) {
+                                            "无法连接 GitHub，请检查网络或代理设置后重试"
                                         } else {
                                             "登录发起失败: $msg"
                                         }
+                                        cancelLogin(hint)
                                     } finally {
                                         loading = false
                                     }
@@ -413,101 +505,101 @@ fun LoginScreen(
 
             // ===== PAT 令牌登录面板 =====
             AnimatedVisibility(visible = showPatInput, enter = fadeIn(), exit = fadeOut()) {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(18.dp))
-                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                            .border(
-                                1.dp,
-                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                                RoundedCornerShape(18.dp)
-                            )
-                            .padding(18.dp)
-                    ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(
-                                    Icons.Filled.Key,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Text(
-                                    text = "如何获取 Personal Access Token？",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-
-                            Text(
-                                text = "1. 在浏览器打开下方预配置链接；\n2. 登录账号后直接滑到底部生成 Token；\n3. 复制生成的 ghp_ 开头密钥并粘贴至下方。",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                lineHeight = 19.sp
-                            )
-
-                            OutlinedButton(
-                                onClick = {
-                                    val url = "https://github.com/settings/tokens/new?scopes=repo,user,read:org&description=MyGitHub"
-                                    copyToClipboard(url, "已复制新建令牌链接")
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(10.dp)
-                            ) {
-                                Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(15.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text("复制新建令牌专属链接", fontSize = 13.sp)
-                            }
+                PatLoginPanel(
+                    patText = patText,
+                    onPatChange = { patText = it },
+                    onCopy = ::copyToClipboard,
+                    onLogin = {
+                        if (patText.isNotBlank()) {
+                            TokenStore.saveToken(context, patText.trim(), "pat")
+                            onLoginSuccess()
                         }
-                    }
+                    },
+                    onBack = { showPatInput = false }
+                )
+            }
+        }
+    }
+}
 
-                    OutlinedTextField(
-                        value = patText,
-                        onValueChange = { patText = it },
-                        placeholder = { Text("粘贴 ghp_ 开头的 Personal Access Token") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        shape = RoundedCornerShape(14.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = MaterialTheme.colorScheme.primary,
-                            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
-                        )
+// ==================== PAT 令牌登录面板 ====================
+
+@Composable
+private fun PatLoginPanel(
+    patText: String,
+    onPatChange: (String) -> Unit,
+    onCopy: (String, String) -> Unit,
+    onLogin: () -> Unit,
+    onBack: () -> Unit
+) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(18.dp))
+                .padding(18.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Filled.Key, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                    Text(
+                        text = "如何获取 Personal Access Token？",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
                     )
-
-                    Button(
-                        onClick = {
-                            if (patText.isNotBlank()) {
-                                TokenStore.saveToken(context, patText.trim(), "pat")
-                                onLoginSuccess()
-                            }
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp),
-                        shape = RoundedCornerShape(14.dp),
-                        enabled = patText.isNotBlank()
-                    ) {
-                        Text("完成并登录", fontWeight = FontWeight.SemiBold)
-                    }
-
-                    TextButton(
-                        onClick = { showPatInput = false }
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("返回账号登录")
-                    }
+                }
+                Text(
+                    text = "1. 在浏览器打开下方链接；\n2. 登录账号后滑到底部生成 Token；\n3. 复制 ghp_ 开头的密钥并粘贴到下方。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = 19.sp
+                )
+                OutlinedButton(
+                    onClick = {
+                        val url = "https://github.com/settings/tokens/new?scopes=repo,user,read:org&description=MyGitHub"
+                        onCopy(url, "已复制新建令牌链接")
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(15.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("复制新建令牌专属链接", fontSize = 13.sp)
                 }
             }
+        }
+
+        OutlinedTextField(
+            value = patText,
+            onValueChange = onPatChange,
+            placeholder = { Text("粘贴 ghp_ 开头的 Personal Access Token") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            shape = RoundedCornerShape(14.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
+            )
+        )
+
+        Button(
+            onClick = onLogin,
+            modifier = Modifier.fillMaxWidth().height(48.dp),
+            shape = RoundedCornerShape(14.dp),
+            enabled = patText.isNotBlank()
+        ) {
+            Text("完成并登录", fontWeight = FontWeight.SemiBold)
+        }
+
+        TextButton(onClick = onBack) {
+            Text("返回其他登录方式", fontSize = 13.sp)
         }
     }
 }

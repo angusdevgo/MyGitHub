@@ -215,7 +215,6 @@ fun MyGitHubApp() {
                 SettingsScreen(
                     onBack = { navController.popBackStack() },
                     onOpenThemeDialog = { showSettingsThemeDialog = true },
-                    onOpenSecurity = { navController.navigate(Routes.SECURITY) },
                     onOpenAccount = { showSettingsAccountDialog = true },
                     themeLabel = themeLabel,
                     loginTypeLabel = loginTypeLabel
