@@ -18,7 +18,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -46,18 +48,27 @@ class GitHubRepository(context: Context) {
     private val db: AppDatabase get() = AppDatabase.get(appContext)
     private val json = Json { ignoreUnknownKeys = true }
 
-    private val rateLimitInterceptor = Interceptor { chain ->
-        val request = chain.request().newBuilder()
-            .header("Accept", "application/vnd.github+json")
-            .build()
-        val response = chain.proceed(request)
-        response
+    /**
+     * 默认请求头拦截器：仅在调用方未显式指定 Accept 时补充默认值。
+     * 绝不能无条件覆写——README 等接口依赖 application/vnd.github.html+json / raw+json，
+     * 被覆写后会返回 JSON 而非 HTML，导致仓库详情页渲染失败。
+     */
+    private val defaultHeadersInterceptor = Interceptor { chain ->
+        val original = chain.request()
+        val request = if (original.header("Accept") == null) {
+            original.newBuilder()
+                .header("Accept", "application/vnd.github+json")
+                .build()
+        } else {
+            original
+        }
+        chain.proceed(request)
     }
 
     private val okClient = OkHttpClient.Builder()
         .connectTimeout(java.time.Duration.ofSeconds(15))
         .readTimeout(java.time.Duration.ofSeconds(30))
-        .addInterceptor(rateLimitInterceptor)
+        .addInterceptor(defaultHeadersInterceptor)
         .proxySelector(com.mygithub.lab.data.network.ProxyManager.createDynamicProxySelector(appContext))
         .build()
 
@@ -270,14 +281,25 @@ class GitHubRepository(context: Context) {
     /** 将网络/限流异常转为用户可读文案 */
     private fun friendlyError(e: Exception, prefix: String): String {
         val msg = e.message.orEmpty()
+        val cause = e.cause?.message.orEmpty()
+        val all = "$msg $cause"
         return when {
-            msg.contains("403") || msg.contains("429") || msg.contains("rate limit", ignoreCase = true) ->
+            all.contains("403") || all.contains("429") || all.contains("rate limit", ignoreCase = true) ->
                 "GitHub API 速率限制已用尽，请稍后重试"
-            msg.contains("401") || msg.contains("Bad credentials", ignoreCase = true) ->
+            all.contains("401") || all.contains("Bad credentials", ignoreCase = true) ->
                 "登录凭证已失效，请重新登录"
-            msg.contains("timeout", ignoreCase = true) || msg.contains("Unable to resolve host", ignoreCase = true) ->
-                "网络连接超时，请检查网络或代理设置"
-            else -> "$prefix: $msg"
+            all.contains("timeout", ignoreCase = true) ->
+                "连接超时：请检查网络或代理设置（$prefix）"
+            all.contains("Unable to resolve host", ignoreCase = true) ||
+                all.contains("No address associated", ignoreCase = true) ->
+                "DNS 解析失败：请检查网络或代理设置（$prefix）"
+            all.contains("Connection refused", ignoreCase = true) ||
+                all.contains("Failed to connect", ignoreCase = true) ||
+                all.contains("ECONNREFUSED", ignoreCase = true) ->
+                "代理连接被拒绝：请确认代理端口可用（$prefix）"
+            all.contains("SSL", ignoreCase = true) || all.contains("certificate", ignoreCase = true) ->
+                "TLS 证书校验失败：请检查代理或镜像配置（$prefix）"
+            else -> "$prefix: ${e.message ?: e.javaClass.simpleName}"
         }
     }
 
@@ -338,23 +360,57 @@ class GitHubRepository(context: Context) {
     }.flowOn(Dispatchers.IO)
 
     /**
+     * 自有仓库列表内存缓存（5 分钟 TTL）
+     * 「议题」「动态」「总量摘要」均依赖它；避免每次切换分段/筛选都重复拉取仓库列表，
+     * 既省请求数，也避免触发 GitHub 次级限流。
+     */
+    @Volatile private var ownedReposCache: List<GitHubRepo>? = null
+    @Volatile private var ownedReposCachedAt: Long = 0L
+    private val ownedReposTtlMs = 5 * 60 * 1000L
+
+    private val ownedReposMutex = kotlinx.coroutines.sync.Mutex()
+
+    /** 下拉刷新时显式失效仓库列表缓存，强制下次重新拉取 */
+    fun invalidateOwnedReposCache() {
+        ownedReposCache = null
+        ownedReposCachedAt = 0L
+    }
+
+    /**
      * 加载当前用户「自己拥有」的非 fork 仓库（最多 2 页 × 100 = 200 个）
      * 供「动态」事件流、「议题」列表与总量摘要共用，保证仓库口径统一。
      */
-    private suspend fun loadOwnedRepos(): List<GitHubRepo> {
-        val owned = mutableListOf<GitHubRepo>()
-        for (page in 1..2) {
-            val chunk = api.getUserRepos(
-                "Bearer $token",
-                affiliation = "owner",
-                sort = "pushed",
-                perPage = 100,
-                page = page
-            )
-            owned.addAll(chunk)
-            if (chunk.size < 100) break
+    private suspend fun loadOwnedRepos(forceRefresh: Boolean = false): List<GitHubRepo> {
+        if (!forceRefresh) {
+            ownedReposCache?.let { cached ->
+                if (System.currentTimeMillis() - ownedReposCachedAt <= ownedReposTtlMs) return cached
+            }
         }
-        return owned.filter { !it.fork }
+        return ownedReposMutex.withLock {
+            // 双重检查：并发调用时只发一次请求
+            val recheck = ownedReposCache
+            if (!forceRefresh && recheck != null &&
+                System.currentTimeMillis() - ownedReposCachedAt <= ownedReposTtlMs
+            ) {
+                return@withLock recheck
+            }
+            val owned = mutableListOf<GitHubRepo>()
+            for (page in 1..2) {
+                val chunk = api.getUserRepos(
+                    "Bearer $token",
+                    affiliation = "owner",
+                    sort = "pushed",
+                    perPage = 100,
+                    page = page
+                )
+                owned.addAll(chunk)
+                if (chunk.size < 100) break
+            }
+            val result = owned.filter { !it.fork }
+            ownedReposCache = result
+            ownedReposCachedAt = System.currentTimeMillis()
+            result
+        }
     }
 
     /**

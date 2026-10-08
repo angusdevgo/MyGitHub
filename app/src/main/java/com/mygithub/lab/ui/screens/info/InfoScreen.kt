@@ -251,6 +251,7 @@ fun InfoScreen(
                     isRefreshing = isRefreshing,
                     onRefresh = {
                         isRefreshing = true
+                        repo.invalidateOwnedReposCache()
                         refreshKey++
                     },
                     state = pullState,
